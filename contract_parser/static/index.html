@@ -1,0 +1,644 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Contract Intelligence &amp; HITL Review Workspace</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+  <style>
+    :root {
+      --bg-primary: #0f172a;
+      --bg-panel: #1e293b;
+      --bg-card: #263349;
+      --border: #334155;
+      --text-main: #f8fafc;
+      --text-muted: #94a3b8;
+      --accent: #38bdf8;
+      --accent-hover: #0284c7;
+      --flag-amber: #f59e0b;
+      --flag-purple: #a855f7;
+      --ok-green: #10b981;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: var(--bg-primary);
+      color: var(--text-main);
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    header {
+      background: var(--bg-panel);
+      border-bottom: 1px solid var(--border);
+      padding: 10px 18px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 14px;
+    }
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-weight: 700;
+      font-size: 16px;
+      letter-spacing: 0.2px;
+    }
+    .brand span.badge {
+      background: rgba(56, 189, 248, 0.15);
+      color: var(--accent);
+      border: 1px solid rgba(56, 189, 248, 0.4);
+      padding: 2px 8px;
+      border-radius: 999px;
+      font-size: 11px;
+    }
+    .toolbar {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    select, input[type="text"], textarea, button {
+      background: var(--bg-card);
+      color: var(--text-main);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 6px 10px;
+      font-size: 13px;
+    }
+    button {
+      cursor: pointer;
+      font-weight: 600;
+      transition: background 0.15s ease;
+    }
+    button.primary {
+      background: var(--accent);
+      color: #0f172a;
+      border-color: var(--accent);
+    }
+    button.primary:hover { background: var(--accent-hover); color: #fff; }
+    button.success {
+      background: var(--ok-green);
+      color: #052e16;
+      border-color: var(--ok-green);
+    }
+    .workspace {
+      flex: 1;
+      display: grid;
+      grid-template-columns: 52% 48%;
+      overflow: hidden;
+    }
+    .left-pane {
+      border-right: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    .meta-bar {
+      background: rgba(30, 41, 59, 0.7);
+      border-bottom: 1px solid var(--border);
+      padding: 10px 16px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 8px;
+      font-size: 12px;
+    }
+    .tabs {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      background: var(--bg-panel);
+      border-bottom: 1px solid var(--border);
+      padding: 6px 16px;
+      gap: 8px;
+    }
+    .tab-buttons { display: flex; gap: 6px; }
+    .tab-btn {
+      padding: 6px 12px;
+      border-radius: 6px;
+      font-size: 12px;
+      background: transparent;
+      border: 1px solid transparent;
+      color: var(--text-muted);
+    }
+    .tab-btn.active {
+      background: var(--bg-card);
+      color: var(--text-main);
+      border-color: var(--accent);
+    }
+    .content-list {
+      flex: 1;
+      overflow-y: auto;
+      padding: 14px 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .clause-card {
+      background: var(--bg-panel);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 12px 14px;
+      cursor: pointer;
+      transition: border-color 0.15s ease;
+    }
+    .clause-card:hover, .clause-card.selected {
+      border-color: var(--accent);
+    }
+    .clause-card.flagged {
+      border-left: 4px solid var(--flag-amber);
+    }
+    .clause-card.placeholder {
+      border-left: 4px solid var(--flag-purple);
+    }
+    .clause-card.approved {
+      border-left: 4px solid var(--ok-green);
+    }
+    .card-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 6px;
+      font-size: 12px;
+    }
+    .path-pill {
+      font-family: monospace;
+      background: var(--bg-card);
+      padding: 2px 7px;
+      border-radius: 4px;
+      color: var(--accent);
+      font-weight: 600;
+    }
+    .status-pill {
+      font-size: 11px;
+      padding: 2px 8px;
+      border-radius: 999px;
+      font-weight: 600;
+    }
+    .status-VERIFIED_AUTO { background: rgba(16,185,129,0.15); color: #34d399; }
+    .status-FLAGGED_FOR_REVIEW { background: rgba(245,158,11,0.2); color: #fbbf24; }
+    .status-PLACEHOLDER_FOR_REVIEW { background: rgba(168,85,247,0.2); color: #c084fc; }
+    .status-APPROVED_BY_HUMAN { background: rgba(56,189,248,0.2); color: #38bdf8; }
+    .clause-text {
+      font-size: 13px;
+      line-height: 1.5;
+      color: var(--text-main);
+      white-space: pre-wrap;
+      margin: 6px 0;
+    }
+    .chip-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-top: 8px;
+    }
+    .chip {
+      font-size: 11px;
+      padding: 2px 7px;
+      border-radius: 4px;
+      background: rgba(148, 163, 184, 0.14);
+      color: var(--text-muted);
+    }
+    .chip.flag-chip {
+      background: rgba(245, 158, 11, 0.18);
+      color: #fcd34d;
+      border: 1px solid rgba(245, 158, 11, 0.35);
+    }
+    .review-drawer {
+      margin-top: 10px;
+      padding-top: 10px;
+      border-top: 1px dashed var(--border);
+      display: none;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .clause-card.selected .review-drawer {
+      display: flex;
+    }
+    .right-pane {
+      display: flex;
+      flex-direction: column;
+      background: #0b1120;
+      overflow: hidden;
+    }
+    .pdf-toolbar {
+      background: var(--bg-panel);
+      border-bottom: 1px solid var(--border);
+      padding: 8px 14px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 12px;
+    }
+    #pdf-canvas-container {
+      flex: 1;
+      overflow-y: auto;
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 18px;
+    }
+    .pdf-page-wrapper {
+      background: #1e293b;
+      padding: 6px;
+      border-radius: 6px;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.45);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+    .pdf-page-wrapper.highlighted {
+      outline: 3px solid var(--accent);
+    }
+    .pdf-page-label {
+      font-size: 11px;
+      color: var(--text-muted);
+      margin-bottom: 4px;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="brand">
+      <span>Hierarchical Contract Intelligence</span>
+      <span class="badge">Gemini 3.x + Append-Only BigQuery + pdf.js</span>
+    </div>
+    <div class="toolbar">
+      <input type="file" id="pdf-upload-input" accept=".pdf" />
+      <button class="primary" id="upload-btn" onclick="uploadPdf()">Upload &amp; Parse PDF</button>
+      <select id="document-selector" onchange="loadSelectedDocument()"></select>
+      <button onclick="downloadCsv('clauses.csv')">clauses.csv</button>
+      <button onclick="downloadCsv('defined_terms.csv')">defined_terms.csv</button>
+      <button onclick="downloadCsv('exhibits_catalog.csv')">exhibits_catalog.csv</button>
+    </div>
+  </header>
+
+  <div class="workspace">
+    <!-- Left Pane: Contract Outline, Context Toggle, Terms, Exhibits & HITL Queue -->
+    <div class="left-pane">
+      <div class="meta-bar" id="doc-meta-bar">
+        <span>Select or upload a legal contract PDF to inspect its hierarchy tree and HITL review flags.</span>
+      </div>
+      <div class="tabs">
+        <div class="tab-buttons">
+          <button class="tab-btn active" id="tab-all" onclick="setTab('all')">Clause Hierarchy</button>
+          <button class="tab-btn" id="tab-flagged" onclick="setTab('flagged')">HITL Review Queue</button>
+          <button class="tab-btn" id="tab-terms" onclick="setTab('terms')">Defined Terms</button>
+          <button class="tab-btn" id="tab-exhibits" onclick="setTab('exhibits')">Exhibits Catalog</button>
+        </div>
+        <label style="font-size:12px; display:flex; align-items:center; gap:6px; cursor:pointer;">
+          <input type="checkbox" id="context-toggle" checked onchange="renderLeftPane()" />
+          Show Full Reconstructed Context
+        </label>
+      </div>
+      <div class="content-list" id="left-content-list"></div>
+    </div>
+
+    <!-- Right Pane: Mozilla pdf.js Multi-Page Canvas Viewer -->
+    <div class="right-pane">
+      <div class="pdf-toolbar">
+        <div>
+          <strong id="pdf-page-indicator">PDF Viewer (Physical Page 1)</strong>
+        </div>
+        <div style="display:flex; gap:6px; align-items:center;">
+          <button onclick="changeZoom(-0.2)">Zoom -</button>
+          <span id="zoom-label">115%</span>
+          <button onclick="changeZoom(0.2)">Zoom +</button>
+          <input type="number" id="jump-page-input" min="1" value="1" style="width:58px; background:#263349; color:#fff; border:1px solid #334155; border-radius:4px; padding:4px;" />
+          <button onclick="jumpToPage(parseInt(document.getElementById('jump-page-input').value || '1', 10))">Go to Page</button>
+        </div>
+      </div>
+      <div id="pdf-canvas-container"></div>
+    </div>
+  </div>
+
+  <script>
+    if (window.pdfjsLib) {
+      window.pdfjsLib.GlobalWorkerOptions.workerSrc =
+        "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+    }
+
+    let currentBundle = null;
+    let currentTab = "all";
+    let selectedNodeId = null;
+    let pdfDoc = null;
+    let pdfScale = 1.15;
+
+    async function fetchDocumentsList(selectDocId = null) {
+      const res = await fetch("/api/v1/documents");
+      const data = await res.json();
+      const selector = document.getElementById("document-selector");
+      selector.innerHTML = "";
+      for (const doc of data.documents || []) {
+        const opt = document.createElement("option");
+        opt.value = doc.document_id;
+        opt.textContent = `${doc.filename} (${doc.flagged_node_count} flags · ${doc.ingestion_status})`;
+        selector.appendChild(opt);
+      }
+      const targetId = selectDocId || (data.documents && data.documents[0] && data.documents[0].document_id);
+      if (targetId) {
+        selector.value = targetId;
+        await loadDocumentBundle(targetId);
+      }
+    }
+
+    async function loadSelectedDocument() {
+      const docId = document.getElementById("document-selector").value;
+      if (docId) {
+        await loadDocumentBundle(docId);
+      }
+    }
+
+    async function uploadPdf() {
+      const input = document.getElementById("pdf-upload-input");
+      if (!input.files || !input.files[0]) {
+        alert("Choose a PDF file first.");
+        return;
+      }
+      const btn = document.getElementById("upload-btn");
+      btn.disabled = true;
+      btn.textContent = "Parsing with Gemini 3.x...";
+      try {
+        const formData = new FormData();
+        formData.append("file", input.files[0]);
+        const res = await fetch("/api/v1/documents/upload", { method: "POST", body: formData });
+        if (!res.ok) {
+          const err = await res.json();
+          throw new Error(err.detail || "Upload failed");
+        }
+        const bundle = await res.json();
+        await fetchDocumentsList(bundle.document.document_id);
+      } catch (err) {
+        alert("Upload error: " + err.message);
+      } finally {
+        btn.disabled = false;
+        btn.textContent = "Upload & Parse PDF";
+      }
+    }
+
+    async function loadDocumentBundle(docId) {
+      const res = await fetch(`/api/v1/documents/${docId}`);
+      if (!res.ok) return;
+      currentBundle = await res.json();
+      renderMetaBar();
+      renderLeftPane();
+      await renderPdfDocument(currentBundle.pdf_url);
+    }
+
+    function renderMetaBar() {
+      if (!currentBundle) return;
+      const doc = currentBundle.document;
+      let partiesText = "";
+      try {
+        const parties = JSON.parse(doc.contracting_parties_json || "[]");
+        partiesText = parties.map(p => p.name || p.short_name || JSON.stringify(p)).join(" ↔ ");
+      } catch (_) {
+        partiesText = doc.contracting_parties_json || "";
+      }
+      document.getElementById("doc-meta-bar").innerHTML = `
+        <div>
+          <strong>${doc.filename}</strong> · <span>ID: <code>${doc.document_id}</code></span>
+          ${doc.effective_date ? ` · Effective: <strong>${doc.effective_date}</strong>` : ""}
+          ${partiesText ? ` · Parties: <span>${partiesText}</span>` : ""}
+        </div>
+        <div>
+          <span>Pages: <strong>${doc.page_count}</strong></span> ·
+          <span>Clauses: <strong>${currentBundle.clauses.length}</strong></span> ·
+          <span>Open Flags: <strong>${doc.flagged_node_count}</strong></span> ·
+          <span class="status-pill status-${doc.ingestion_status}">${doc.ingestion_status}</span>
+        </div>
+      `;
+    }
+
+    function setTab(tabName) {
+      currentTab = tabName;
+      for (const id of ["all", "flagged", "terms", "exhibits"]) {
+        document.getElementById(`tab-${id}`).classList.toggle("active", id === tabName);
+      }
+      renderLeftPane();
+    }
+
+    function renderLeftPane() {
+      const container = document.getElementById("left-content-list");
+      container.innerHTML = "";
+      if (!currentBundle) return;
+
+      const showReconstructed = document.getElementById("context-toggle").checked;
+
+      if (currentTab === "terms") {
+        for (const t of currentBundle.defined_terms) {
+          const card = document.createElement("div");
+          card.className = "clause-card";
+          card.onclick = () => jumpToPage(t.page_number);
+          card.innerHTML = `
+            <div class="card-header">
+              <span class="path-pill">"${t.term_name}"</span>
+              <span>Defined in <code>${t.defined_in_node_id}</code> · Page ${t.page_number}</span>
+            </div>
+            <div class="clause-text">${escapeHtml(t.verbatim_definition)}</div>
+            <div class="chip-row">
+              <span class="chip">${t.definition_type}</span>
+              <span class="chip">Used in: ${t.referenced_in_nodes}</span>
+            </div>
+          `;
+          container.appendChild(card);
+        }
+        return;
+      }
+
+      if (currentTab === "exhibits") {
+        for (const ex of currentBundle.exhibits_catalog) {
+          const card = document.createElement("div");
+          card.className = "clause-card" + (ex.has_unresolved_external_dep ? " flagged" : "");
+          card.onclick = () => jumpToPage(ex.page_start);
+          card.innerHTML = `
+            <div class="card-header">
+              <span class="path-pill">${escapeHtml(ex.exhibit_id)} — ${escapeHtml(ex.exhibit_title)}</span>
+              <span>Pages ${ex.page_start}–${ex.page_end}</span>
+            </div>
+            <div class="clause-text"><code>${escapeHtml(ex.structured_entities_json)}</code></div>
+            <div class="chip-row">
+              <span class="chip">${ex.exhibit_modality}</span>
+              <span class="chip">Referenced by: ${ex.referenced_by_nodes}</span>
+              ${ex.has_unresolved_external_dep ? `<span class="chip flag-chip">UNRESOLVED_EXTERNAL_DEPENDENCY</span>` : ""}
+            </div>
+          `;
+          container.appendChild(card);
+        }
+        return;
+      }
+
+      const clauses = currentBundle.clauses.filter(c => {
+        if (currentTab === "flagged") {
+          return c.hitl_status === "FLAGGED_FOR_REVIEW" || c.hitl_status === "PLACEHOLDER_FOR_REVIEW";
+        }
+        return true;
+      });
+
+      for (const c of clauses) {
+        const card = document.createElement("div");
+        const statusClass =
+          c.hitl_status === "FLAGGED_FOR_REVIEW" ? "flagged" :
+          c.hitl_status === "PLACEHOLDER_FOR_REVIEW" ? "placeholder" :
+          c.hitl_status === "APPROVED_BY_HUMAN" ? "approved" : "";
+        const isSelected = selectedNodeId === c.node_id ? "selected" : "";
+        card.className = `clause-card ${statusClass} ${isSelected}`;
+        card.style.marginLeft = `${Math.max(0, (c.depth - 1) * 18)}px`;
+
+        const displayedText = showReconstructed ? c.reconstructed_context_text : c.verbatim_text;
+        const flags = (c.hitl_flag_reasons && c.hitl_flag_reasons !== "NONE") ? c.hitl_flag_reasons.split("|") : [];
+        const terms = (c.defined_terms_used && c.defined_terms_used !== "NONE") ? c.defined_terms_used.split("|") : [];
+
+        card.innerHTML = `
+          <div class="card-header" onclick="selectClause('${c.node_id}', ${c.page_start})">
+            <div>
+              <span class="path-pill">${escapeHtml(c.canonical_path)}</span>
+              <strong style="margin-left:6px;">${escapeHtml(c.clause_label)}</strong>
+              ${c.clause_title ? `<span style="color:#94a3b8; margin-left:6px;">${escapeHtml(c.clause_title)}</span>` : ""}
+              ${c.is_inline_clause ? `<span class="chip" style="margin-left:6px;">inline</span>` : ""}
+            </div>
+            <div>
+              <span style="color:#94a3b8; margin-right:6px;">p. ${c.page_start}${c.page_end !== c.page_start ? `–${c.page_end}` : ""}</span>
+              <span class="status-pill status-${c.hitl_status}">${c.hitl_status}</span>
+            </div>
+          </div>
+          <div class="clause-text" onclick="selectClause('${c.node_id}', ${c.page_start})">${escapeHtml(displayedText)}</div>
+          <div class="chip-row">
+            ${flags.map(f => `<span class="chip flag-chip">${escapeHtml(f)}</span>`).join("")}
+            ${terms.map(t => `<span class="chip">Term: ${escapeHtml(t)}</span>`).join("")}
+            ${c.reviewed_by ? `<span class="chip">Reviewed by ${escapeHtml(c.reviewed_by)}</span>` : ""}
+          </div>
+          <div class="review-drawer" onclick="event.stopPropagation()">
+            <label style="font-size:11px; color:#94a3b8;">Atomic Verbatim Text:</label>
+            <textarea id="edit-verbatim-${c.node_id}" rows="2">${escapeHtml(c.verbatim_text)}</textarea>
+            <label style="font-size:11px; color:#94a3b8;">Reconstructed Full-Context Text:</label>
+            <textarea id="edit-context-${c.node_id}" rows="3">${escapeHtml(c.reconstructed_context_text)}</textarea>
+            <div style="display:flex; gap:8px; align-items:center;">
+              <input type="text" id="edit-reviewer-${c.node_id}" value="${escapeHtml(c.reviewed_by || 'legal_analyst')}" placeholder="Reviewer" style="width:140px;" />
+              <input type="text" id="edit-notes-${c.node_id}" value="${escapeHtml(c.review_notes || '')}" placeholder="Review notes..." style="flex:1;" />
+              <button class="success" onclick="approveClause('${c.node_id}')">Approve &amp; Save Version</button>
+            </div>
+          </div>
+        `;
+        container.appendChild(card);
+      }
+    }
+
+    function selectClause(nodeId, pageStart) {
+      selectedNodeId = nodeId;
+      renderLeftPane();
+      jumpToPage(pageStart);
+    }
+
+    async function approveClause(nodeId) {
+      if (!currentBundle) return;
+      const docId = currentBundle.document.document_id;
+      const verbatimText = document.getElementById(`edit-verbatim-${nodeId}`).value;
+      const contextText = document.getElementById(`edit-context-${nodeId}`).value;
+      const reviewedBy = document.getElementById(`edit-reviewer-${nodeId}`).value || "legal_analyst";
+      const reviewNotes = document.getElementById(`edit-notes-${nodeId}`).value || "Approved in HITL Web UI";
+
+      const res = await fetch(`/api/v1/documents/${docId}/clauses/${encodeURIComponent(nodeId)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          hitl_status: "APPROVED_BY_HUMAN",
+          verbatim_text: verbatimText,
+          reconstructed_context_text: contextText,
+          reviewed_by: reviewedBy,
+          review_notes: reviewNotes
+        })
+      });
+      if (!res.ok) {
+        alert("Failed to save review version.");
+        return;
+      }
+      await loadDocumentBundle(docId);
+      await fetchDocumentsList(docId);
+    }
+
+    async function renderPdfDocument(pdfUrl) {
+      const container = document.getElementById("pdf-canvas-container");
+      container.innerHTML = "";
+      document.getElementById("zoom-label").textContent = `${Math.round(pdfScale * 100)}%`;
+
+      if (!window.pdfjsLib) {
+        container.innerHTML = `<iframe src="${pdfUrl}" style="width:100%; height:100%; border:none;"></iframe>`;
+        return;
+      }
+      try {
+        const loadingTask = window.pdfjsLib.getDocument(pdfUrl);
+        pdfDoc = await loadingTask.promise;
+        for (let pageNum = 1; pageNum <= pdfDoc.numPages; pageNum++) {
+          const page = await pdfDoc.getPage(pageNum);
+          const viewport = page.getViewport({ scale: pdfScale });
+          const wrapper = document.createElement("div");
+          wrapper.className = "pdf-page-wrapper";
+          wrapper.id = `pdf-page-${pageNum}`;
+
+          const label = document.createElement("div");
+          label.className = "pdf-page-label";
+          label.textContent = `Physical Page ${pageNum} of ${pdfDoc.numPages}`;
+
+          const canvas = document.createElement("canvas");
+          const ctx = canvas.getContext("2d");
+          canvas.height = viewport.height;
+          canvas.width = viewport.width;
+
+          wrapper.appendChild(label);
+          wrapper.appendChild(canvas);
+          container.appendChild(wrapper);
+
+          await page.render({ canvasContext: ctx, viewport: viewport }).promise;
+        }
+      } catch (err) {
+        container.innerHTML = `<iframe src="${pdfUrl}" style="width:100%; height:100%; border:none;"></iframe>`;
+      }
+    }
+
+    function jumpToPage(pageNumber) {
+      const pageNum = Math.max(1, parseInt(pageNumber || 1, 10));
+      document.getElementById("jump-page-input").value = pageNum;
+      document.getElementById("pdf-page-indicator").textContent = `PDF Viewer (Physical Page ${pageNum})`;
+      for (const el of document.querySelectorAll(".pdf-page-wrapper")) {
+        el.classList.remove("highlighted");
+      }
+      const target = document.getElementById(`pdf-page-${pageNum}`);
+      if (target) {
+        target.classList.add("highlighted");
+        target.scrollIntoView({ behavior: "smooth", block: "start" });
+      }
+    }
+
+    async function changeZoom(delta) {
+      pdfScale = Math.min(2.4, Math.max(0.6, pdfScale + delta));
+      if (currentBundle) {
+        await renderPdfDocument(currentBundle.pdf_url);
+      }
+    }
+
+    function downloadCsv(csvName) {
+      if (!currentBundle) return;
+      const docId = currentBundle.document.document_id;
+      window.open(`/api/v1/documents/${docId}/export/${csvName}`, "_blank");
+    }
+
+    function escapeHtml(str) {
+      return String(str || "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;");
+    }
+
+    fetchDocumentsList();
+  </script>
+</body>
+</html>

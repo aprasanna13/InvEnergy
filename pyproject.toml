@@ -1,0 +1,31 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "contract-parser"
+version = "0.1.0"
+description = "Gemini-First Hierarchical Contract Parsing & Context Preservation Platform (Session 1)"
+readme = "Design/DESIGN_DOC.md"
+requires-python = ">=3.11"
+dependencies = [
+    "google-genai>=1.0.0",
+    "google-cloud-storage>=2.14.0",
+    "google-cloud-bigquery>=3.20.0",
+    "pydantic>=2.7.0",
+    "fastapi>=0.111.0",
+    "uvicorn>=0.30.0",
+    "python-multipart>=0.0.9",
+    "httpx>=0.27.0",
+    "pytest>=8.2.0",
+]
+
+[project.scripts]
+contract-parser = "contract_parser.app:cli_main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["contract_parser"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
