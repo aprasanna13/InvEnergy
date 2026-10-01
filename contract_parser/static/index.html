@@ -3,271 +3,618 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Contract Intelligence &amp; HITL Review Workspace</title>
+  <title>Invenergy | Contract Intelligence &amp; HITL Review Workspace</title>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
   <style>
+    /* ==========================================================================
+       Invenergy Official Brand Design System Tokens (Extracted from invenergy.com)
+       ========================================================================== */
     :root {
-      --bg-primary: #0f172a;
-      --bg-panel: #1e293b;
-      --bg-card: #263349;
-      --border: #334155;
-      --text-main: #f8fafc;
-      --text-muted: #94a3b8;
-      --accent: #38bdf8;
-      --accent-hover: #0284c7;
-      --flag-amber: #f59e0b;
-      --flag-purple: #a855f7;
-      --ok-green: #10b981;
+      /* Brand Core */
+      --brand-invenergy-green: #118751;
+      --brand-dark-green: #042B19;
+      --brand-pine-green: #0F633C;
+      --brand-canopy-green: #084B2C;
+      --brand-yellow: #FFCF0B;
+
+      /* Neutrals & Surfaces */
+      --neutrals-white: #FFFFFF;
+      --neutrals-light-green: #F5F8F7;
+      --neutrals-mint-wash: #EAF8F1;
+      --neutrals-sage-green: #CEE4DA;
+      --neutrals-dark-grey: #97A79F;
+      --neutrals-gray: #626D68;
+      --neutrals-light-blue: #F7FCFF;
+      --neutrals-blue: #DDEDF6;
+      --feedback-gray: #ECECEC;
+
+      /* Domain Technology & Status Accents */
+      --tech-wind: #0F633C;
+      --tech-solar: #F9AE1C;
+      --tech-storage: #0E79AF;
+      --tech-clean-water: #44C8F5;
+      --tech-services: #1F2A44;
+      --tech-transmission: #612C83;
+      --feedback-green: #059641;
+      --feedback-red: #D21313;
+
+      /* Typography Stacks */
+      --font-sans: NeueHelvetica, "Helvetica Neue", -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+      --font-condensed: "Helvetica Neue Condensed Bold", "Helvetica Neue", "Arial Narrow", Arial, sans-serif;
+      --font-mono: SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+
+      /* Motion & Radii */
+      --ease-smooth: cubic-bezier(0.32, 0.72, 0, 1);
+      --radius-sm: 4px;
+      --radius-md: 6px;
+      --radius-lg: 8px;
+      --shadow-card: 0 1px 3px rgba(4, 43, 25, 0.06), 0 1px 2px rgba(4, 43, 25, 0.04);
+      --shadow-card-hover: 0 6px 16px rgba(4, 43, 25, 0.09);
     }
-    * { box-sizing: border-box; }
+
+    * {
+      box-sizing: border-box;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    html {
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+      text-rendering: optimizeLegibility;
+      font-feature-settings: "cv11";
+    }
+
     body {
       margin: 0;
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-      background: var(--bg-primary);
-      color: var(--text-main);
-      height: 100vh;
+      font-family: var(--font-sans);
+      background: var(--neutrals-light-green);
+      color: var(--brand-dark-green);
+      height: 100dvh;
+      min-height: 100dvh;
       display: flex;
       flex-direction: column;
       overflow: hidden;
     }
+
+    /* Executive Top Header (Deep Forest Green #042B19) */
     header {
-      background: var(--bg-panel);
-      border-bottom: 1px solid var(--border);
-      padding: 10px 18px;
+      background: var(--brand-dark-green);
+      color: var(--neutrals-white);
+      border-bottom: 2px solid var(--brand-invenergy-green);
+      padding: 12px 22px;
       display: flex;
       align-items: center;
       justify-content: space-between;
-      gap: 14px;
+      gap: 16px;
+      flex-wrap: wrap;
+      box-shadow: 0 2px 10px rgba(4, 43, 25, 0.18);
+      z-index: 20;
     }
+
     .brand {
       display: flex;
       align-items: center;
-      gap: 10px;
-      font-weight: 700;
-      font-size: 16px;
-      letter-spacing: 0.2px;
+      gap: 14px;
     }
+
+    .brand-logo {
+      display: inline-flex;
+      align-items: center;
+      height: 26px;
+      flex-shrink: 0;
+    }
+
+    .brand-divider {
+      width: 1px;
+      height: 22px;
+      background: rgba(206, 228, 218, 0.3);
+    }
+
+    .brand-title {
+      font-weight: 700;
+      font-size: 15px;
+      letter-spacing: -0.01em;
+      color: var(--neutrals-white);
+    }
+
     .brand span.badge {
-      background: rgba(56, 189, 248, 0.15);
-      color: var(--accent);
-      border: 1px solid rgba(56, 189, 248, 0.4);
-      padding: 2px 8px;
+      background: rgba(17, 135, 81, 0.28);
+      color: var(--neutrals-sage-green);
+      border: 1px solid rgba(255, 207, 11, 0.45);
+      padding: 3px 10px;
       border-radius: 999px;
       font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
     }
+
     .toolbar {
       display: flex;
       align-items: center;
-      gap: 10px;
+      gap: 8px;
       flex-wrap: wrap;
     }
-    select, input[type="text"], textarea, button {
-      background: var(--bg-card);
-      color: var(--text-main);
-      border: 1px solid var(--border);
-      border-radius: 6px;
-      padding: 6px 10px;
+
+    /* Form Controls & Buttons */
+    select, input[type="text"], input[type="number"], textarea, button {
+      font-family: var(--font-sans);
+      background: var(--neutrals-white);
+      color: var(--brand-dark-green);
+      border: 1px solid var(--neutrals-sage-green);
+      border-radius: var(--radius-md);
+      padding: 7px 12px;
       font-size: 13px;
+      line-height: 1.35;
+      transition: all 180ms var(--ease-smooth);
     }
+
+    select:focus, input[type="text"]:focus, input[type="number"]:focus, textarea:focus {
+      outline: 2px solid var(--brand-invenergy-green);
+      outline-offset: 1px;
+      border-color: var(--brand-invenergy-green);
+    }
+
+    header select,
+    header input[type="file"] {
+      background: rgba(255, 255, 255, 0.08);
+      color: var(--neutrals-white);
+      border: 1px solid rgba(206, 228, 218, 0.32);
+      border-radius: var(--radius-md);
+      padding: 6px 10px;
+      font-size: 12px;
+    }
+
+    header select option {
+      background: var(--brand-dark-green);
+      color: var(--neutrals-white);
+    }
+
+    header button:not(.primary) {
+      background: rgba(255, 255, 255, 0.08);
+      color: var(--neutrals-white);
+      border: 1px solid rgba(206, 228, 218, 0.35);
+      font-size: 12px;
+      font-weight: 600;
+    }
+
+    header button:not(.primary):hover {
+      background: rgba(17, 135, 81, 0.35);
+      border-color: var(--brand-yellow);
+    }
+
     button {
       cursor: pointer;
-      font-weight: 600;
-      transition: background 0.15s ease;
+      font-weight: 700;
+      letter-spacing: 0.01em;
     }
+
+    button:active:not(:disabled) {
+      transform: translateY(-1px);
+    }
+
+    button:disabled {
+      background: var(--feedback-gray) !important;
+      color: var(--neutrals-gray) !important;
+      border-color: var(--neutrals-dark-grey) !important;
+      cursor: not-allowed;
+      opacity: 1;
+    }
+
     button.primary {
-      background: var(--accent);
-      color: #0f172a;
-      border-color: var(--accent);
+      background: var(--brand-invenergy-green);
+      color: var(--neutrals-white);
+      border-color: var(--brand-invenergy-green);
+      box-shadow: 0 1px 2px rgba(4, 43, 25, 0.2);
     }
-    button.primary:hover { background: var(--accent-hover); color: #fff; }
+
+    button.primary:hover:not(:disabled) {
+      background: var(--brand-pine-green);
+      border-color: var(--brand-pine-green);
+    }
+
     button.success {
-      background: var(--ok-green);
-      color: #052e16;
-      border-color: var(--ok-green);
+      background: var(--brand-invenergy-green);
+      color: var(--neutrals-white);
+      border-color: var(--brand-invenergy-green);
+      padding: 8px 14px;
     }
+
+    button.success:hover:not(:disabled) {
+      background: var(--brand-pine-green);
+      border-color: var(--brand-pine-green);
+    }
+
+    /* Main Split-Screen Workspace */
     .workspace {
       flex: 1;
       display: grid;
       grid-template-columns: 52% 48%;
       overflow: hidden;
     }
+
     .left-pane {
-      border-right: 1px solid var(--border);
+      background: var(--neutrals-light-green);
+      border-right: 1px solid var(--neutrals-sage-green);
       display: flex;
       flex-direction: column;
       overflow: hidden;
     }
+
+    /* Document Metadata Summary Bar */
     .meta-bar {
-      background: rgba(30, 41, 59, 0.7);
-      border-bottom: 1px solid var(--border);
-      padding: 10px 16px;
+      background: var(--neutrals-white);
+      border-bottom: 1px solid var(--neutrals-sage-green);
+      padding: 11px 18px;
       display: flex;
       justify-content: space-between;
       align-items: center;
       flex-wrap: wrap;
-      gap: 8px;
-      font-size: 12px;
+      gap: 10px;
+      font-size: 12.5px;
+      color: var(--brand-dark-green);
     }
+
+    .meta-bar code {
+      font-family: var(--font-mono);
+      background: var(--neutrals-mint-wash);
+      color: var(--brand-pine-green);
+      padding: 2px 6px;
+      border-radius: var(--radius-sm);
+      font-size: 11.5px;
+    }
+
+    /* Invenergy Tracked Uppercase Navigation Tabs */
     .tabs {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      background: var(--bg-panel);
-      border-bottom: 1px solid var(--border);
-      padding: 6px 16px;
-      gap: 8px;
+      background: var(--neutrals-white);
+      border-bottom: 1px solid var(--neutrals-sage-green);
+      padding: 0 18px;
+      gap: 10px;
+      flex-wrap: wrap;
     }
-    .tab-buttons { display: flex; gap: 6px; }
+
+    .tab-buttons {
+      display: flex;
+      gap: 4px;
+    }
+
     .tab-btn {
-      padding: 6px 12px;
-      border-radius: 6px;
-      font-size: 12px;
+      padding: 11px 14px;
+      border-radius: 0;
+      font-size: 11.5px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
       background: transparent;
-      border: 1px solid transparent;
-      color: var(--text-muted);
+      border: none;
+      border-bottom: 3px solid transparent;
+      color: var(--neutrals-gray);
+      transition: all 160ms var(--ease-smooth);
     }
+
+    .tab-btn:hover {
+      color: var(--brand-dark-green);
+      background: var(--neutrals-light-green);
+    }
+
     .tab-btn.active {
-      background: var(--bg-card);
-      color: var(--text-main);
-      border-color: var(--accent);
+      color: var(--brand-dark-green);
+      background: var(--neutrals-mint-wash);
+      border-bottom-color: var(--brand-invenergy-green);
     }
+
+    .context-toggle-label {
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--brand-dark-green);
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      cursor: pointer;
+      padding: 6px 10px;
+      border-radius: var(--radius-md);
+      background: var(--neutrals-light-green);
+      border: 1px solid var(--neutrals-sage-green);
+    }
+
+    .context-toggle-label input[type="checkbox"] {
+      accent-color: var(--brand-invenergy-green);
+      width: 15px;
+      height: 15px;
+      cursor: pointer;
+    }
+
+    /* Clause Hierarchy Cards List */
     .content-list {
       flex: 1;
       overflow-y: auto;
-      padding: 14px 16px;
+      padding: 16px 18px;
       display: flex;
       flex-direction: column;
       gap: 10px;
     }
+
     .clause-card {
-      background: var(--bg-panel);
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      padding: 12px 14px;
+      background: var(--neutrals-white);
+      border: 1px solid var(--neutrals-sage-green);
+      border-left: 4px solid var(--feedback-green);
+      border-radius: var(--radius-lg);
+      padding: 13px 16px;
       cursor: pointer;
-      transition: border-color 0.15s ease;
+      box-shadow: var(--shadow-card);
+      transition: border-color 180ms var(--ease-smooth), box-shadow 180ms var(--ease-smooth), transform 180ms var(--ease-smooth);
     }
-    .clause-card:hover, .clause-card.selected {
-      border-color: var(--accent);
+
+    .clause-card:hover {
+      border-color: var(--brand-invenergy-green);
+      box-shadow: var(--shadow-card-hover);
     }
+
+    .clause-card.selected {
+      border-color: var(--brand-invenergy-green);
+      background: #FCFDFD;
+      box-shadow: 0 0 0 2px rgba(17, 135, 81, 0.18), var(--shadow-card-hover);
+    }
+
     .clause-card.flagged {
-      border-left: 4px solid var(--flag-amber);
+      border-left: 4px solid var(--tech-solar);
     }
+
     .clause-card.placeholder {
-      border-left: 4px solid var(--flag-purple);
+      border-left: 4px solid var(--tech-transmission);
     }
+
     .clause-card.approved {
-      border-left: 4px solid var(--ok-green);
+      border-left: 4px solid var(--tech-storage);
     }
+
     .card-header {
       display: flex;
       justify-content: space-between;
       align-items: center;
       gap: 8px;
-      margin-bottom: 6px;
+      margin-bottom: 8px;
       font-size: 12px;
+      flex-wrap: wrap;
     }
+
     .path-pill {
-      font-family: monospace;
-      background: var(--bg-card);
-      padding: 2px 7px;
-      border-radius: 4px;
-      color: var(--accent);
-      font-weight: 600;
-    }
-    .status-pill {
-      font-size: 11px;
+      font-family: var(--font-mono);
+      background: var(--neutrals-mint-wash);
+      border: 1px solid var(--neutrals-sage-green);
       padding: 2px 8px;
-      border-radius: 999px;
-      font-weight: 600;
+      border-radius: var(--radius-sm);
+      color: var(--brand-pine-green);
+      font-weight: 700;
+      font-size: 11.5px;
     }
-    .status-VERIFIED_AUTO { background: rgba(16,185,129,0.15); color: #34d399; }
-    .status-FLAGGED_FOR_REVIEW { background: rgba(245,158,11,0.2); color: #fbbf24; }
-    .status-PLACEHOLDER_FOR_REVIEW { background: rgba(168,85,247,0.2); color: #c084fc; }
-    .status-APPROVED_BY_HUMAN { background: rgba(56,189,248,0.2); color: #38bdf8; }
+
+    .clause-title-text {
+      color: var(--neutrals-gray);
+      font-weight: 600;
+      margin-left: 6px;
+    }
+
+    .page-badge {
+      color: var(--neutrals-gray);
+      font-family: var(--font-mono);
+      font-size: 11.5px;
+      font-weight: 600;
+      margin-right: 6px;
+    }
+
+    /* Status Pills Mapped to Invenergy Domain Palette */
+    .status-pill {
+      font-size: 10.5px;
+      padding: 3px 9px;
+      border-radius: 999px;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+
+    .status-VERIFIED_AUTO,
+    .status-COMPLETED {
+      background: var(--neutrals-mint-wash);
+      color: var(--feedback-green);
+      border: 1px solid var(--neutrals-sage-green);
+    }
+
+    .status-FLAGGED_FOR_REVIEW,
+    .status-NEEDS_HITL_REVIEW {
+      background: #FFFBEB;
+      color: #975A16;
+      border: 1px solid #F6E05E;
+    }
+
+    .status-PLACEHOLDER_FOR_REVIEW {
+      background: #FAF5FF;
+      color: var(--tech-transmission);
+      border: 1px solid #E9D5FF;
+    }
+
+    .status-APPROVED_BY_HUMAN {
+      background: var(--neutrals-light-blue);
+      color: var(--tech-storage);
+      border: 1px solid var(--neutrals-blue);
+    }
+
     .clause-text {
-      font-size: 13px;
-      line-height: 1.5;
-      color: var(--text-main);
+      font-size: 13.5px;
+      line-height: 1.6;
+      color: var(--brand-dark-green);
       white-space: pre-wrap;
       margin: 6px 0;
     }
+
     .chip-row {
       display: flex;
       flex-wrap: wrap;
       gap: 6px;
       margin-top: 8px;
     }
+
     .chip {
       font-size: 11px;
-      padding: 2px 7px;
-      border-radius: 4px;
-      background: rgba(148, 163, 184, 0.14);
-      color: var(--text-muted);
+      font-weight: 600;
+      padding: 2px 8px;
+      border-radius: var(--radius-sm);
+      background: var(--neutrals-light-green);
+      border: 1px solid var(--neutrals-sage-green);
+      color: var(--neutrals-gray);
     }
+
     .chip.flag-chip {
-      background: rgba(245, 158, 11, 0.18);
-      color: #fcd34d;
-      border: 1px solid rgba(245, 158, 11, 0.35);
+      background: #FFFBEB;
+      color: #975A16;
+      border: 1px solid #F6E05E;
+      font-weight: 700;
     }
+
+    /* HITL Review Drawer */
     .review-drawer {
-      margin-top: 10px;
-      padding-top: 10px;
-      border-top: 1px dashed var(--border);
+      margin-top: 12px;
+      padding: 12px;
+      background: var(--neutrals-light-green);
+      border: 1px solid var(--neutrals-sage-green);
+      border-radius: var(--radius-md);
       display: none;
       flex-direction: column;
       gap: 8px;
     }
+
     .clause-card.selected .review-drawer {
       display: flex;
     }
+
+    .drawer-label {
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--brand-pine-green);
+    }
+
+    /* Right Pane: Synchronized PDF.js Document Stage */
     .right-pane {
       display: flex;
       flex-direction: column;
-      background: #0b1120;
+      background: var(--tech-services);
       overflow: hidden;
     }
+
     .pdf-toolbar {
-      background: var(--bg-panel);
-      border-bottom: 1px solid var(--border);
-      padding: 8px 14px;
+      background: var(--brand-canopy-green);
+      color: var(--neutrals-white);
+      border-bottom: 1px solid rgba(206, 228, 218, 0.25);
+      padding: 8px 16px;
       display: flex;
       justify-content: space-between;
       align-items: center;
+      font-size: 12.5px;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .pdf-toolbar button {
+      background: rgba(255, 255, 255, 0.1);
+      color: var(--neutrals-white);
+      border: 1px solid rgba(206, 228, 218, 0.35);
+      padding: 5px 10px;
       font-size: 12px;
     }
+
+    .pdf-toolbar button:hover {
+      background: var(--brand-invenergy-green);
+      border-color: var(--brand-yellow);
+    }
+
+    .pdf-toolbar input[type="number"] {
+      width: 62px;
+      background: rgba(255, 255, 255, 0.12);
+      color: var(--neutrals-white);
+      border: 1px solid rgba(206, 228, 218, 0.4);
+      border-radius: var(--radius-sm);
+      padding: 4px 6px;
+      font-family: var(--font-mono);
+      text-align: center;
+    }
+
     #pdf-canvas-container {
       flex: 1;
       overflow-y: auto;
-      padding: 16px;
+      padding: 20px;
       display: flex;
       flex-direction: column;
       align-items: center;
-      gap: 18px;
+      gap: 20px;
     }
+
     .pdf-page-wrapper {
-      background: #1e293b;
-      padding: 6px;
-      border-radius: 6px;
-      box-shadow: 0 4px 16px rgba(0,0,0,0.45);
+      background: var(--neutrals-white);
+      padding: 8px;
+      border-radius: var(--radius-md);
+      box-shadow: 0 8px 24px rgba(4, 43, 25, 0.35);
       display: flex;
       flex-direction: column;
       align-items: center;
+      border: 2px solid transparent;
+      transition: border-color 200ms var(--ease-smooth), box-shadow 200ms var(--ease-smooth);
     }
+
     .pdf-page-wrapper.highlighted {
-      outline: 3px solid var(--accent);
+      border-color: var(--brand-invenergy-green);
+      outline: 3px solid var(--brand-yellow);
     }
+
     .pdf-page-label {
+      font-family: var(--font-mono);
       font-size: 11px;
-      color: var(--text-muted);
-      margin-bottom: 4px;
+      font-weight: 700;
+      color: var(--brand-dark-green);
+      background: var(--neutrals-mint-wash);
+      border: 1px solid var(--neutrals-sage-green);
+      padding: 3px 10px;
+      border-radius: 999px;
+      margin-bottom: 8px;
+    }
+
+    @media (max-width: 960px) {
+      body {
+        height: auto;
+        overflow-y: auto;
+      }
+      .workspace {
+        grid-template-columns: 1fr;
+      }
+      .left-pane, .right-pane {
+        min-height: 70dvh;
+      }
     }
   </style>
 </head>
 <body>
   <header>
     <div class="brand">
-      <span>Hierarchical Contract Intelligence</span>
+      <!-- Official Invenergy Vector Wordmark (White with #118751 Invenergy Emerald 'e') -->
+      <a href="https://invenergy.com/" target="_blank" rel="noopener noreferrer" class="brand-logo" title="Invenergy — Energy Innovation. Trusted Execution.">
+        <svg width="132" height="28" viewBox="0 0 154 32" fill="none" xmlns="http://www.w3.org/2000/svg" aria-label="Invenergy">
+          <path d="M0.110677 22.4813C1.45264 22.2738 2.73926 21.9833 2.73926 19.0365V3.33415C2.72543 1.63249 1.27279 1.63249 0 1.42497C0 0.539551 0.359701 0 0.359701 0H8.39763C8.39763 0 8.75733 0.608724 8.75733 1.42497C7.51221 1.63249 6.19792 1.88151 6.19792 4.82829V20.7105C6.19792 21.2362 6.19792 21.7757 6.65446 21.9141C7.18018 22.0939 8.4253 22.343 9.49057 22.4813C9.49057 23.3252 9.13087 23.8648 9.13087 23.8648H0.456543C0.456543 23.8648 0.0968425 23.2975 0.0968425 22.4813" fill="#FFFFFF"/>
+          <path d="M23.4086 23.8647C23.4086 23.8647 23.0489 23.4358 23.0489 22.6196C24.792 22.3014 25.6359 21.8448 25.6359 19.576V12.797C25.6359 9.78102 24.543 8.25921 21.9836 8.25921C20.531 8.25921 18.857 9.35215 18.1514 9.85019V20.9594C18.1514 22.2737 18.6079 22.2045 21.0982 22.6334C21.0982 23.4497 20.7385 23.8785 20.7385 23.8785H12.4377C12.4377 23.8785 12.078 23.4497 12.078 22.6334C13.8903 22.3152 14.7066 21.748 14.7066 19.5898V11.1091C14.7066 8.95094 13.752 8.77109 12.1195 8.77109C12.1195 8.77109 11.912 8.48057 11.912 7.84417C11.912 7.70582 11.912 7.52597 11.9396 7.38763C14.2085 7.20778 15.5228 6.7789 17.3628 6.14251C17.93 6.59905 18.0684 7.0971 18.1099 8.27305C19.8531 7.0971 21.8729 6.14251 22.4678 6.14251C26.5075 6.14251 29.0254 7.73349 29.0254 11.9254V20.9733C29.0254 22.2184 29.2329 22.1077 31.9999 22.6472C31.9999 23.4635 31.6402 23.8924 31.6402 23.8924H23.3809L23.4086 23.8647Z" fill="#FFFFFF"/>
+          <path d="M33.6601 11.3444C33.1621 10.0993 32.9131 9.53207 32.3182 8.8265C32 8.43913 31.5019 8.23161 30.9347 8.07943C30.9347 7.30469 31.2944 6.73747 31.2944 6.73747H39.1248C39.1248 6.73747 39.4845 7.30469 39.4845 8.07943C38.0596 8.35613 36.4686 8.53598 36.4686 9.28305C36.4686 9.71192 36.6484 10.0993 36.8283 10.5558L40.868 20.1017C40.868 20.1017 43.2752 12.6172 43.6349 11.4828C43.8839 10.625 44.0915 9.98861 44.0915 9.39372C44.0915 8.68816 43.2752 8.30079 41.8917 8.07943C41.8917 7.30469 42.2099 6.73747 42.2099 6.73747H48.4079C48.4079 6.73747 48.7676 7.26319 48.7676 8.07943C47.8821 8.19011 47.4533 8.53598 47.1351 8.89568C46.7062 9.32455 46.388 10.1685 46.0421 11.2337C45.7516 12.0915 42.8878 20.1294 41.7811 22.5781C41.283 23.6434 40.1901 24.2106 39.2632 24.2798L33.6601 11.3444Z" fill="#FFFFFF"/>
+          <path d="M60.5263 12.4513C60.5263 9.57365 59.1844 8.02417 57.0538 8.02417C54.9233 8.02417 52.9588 9.21395 52.9588 13.6272C53.0695 13.6272 60.5263 12.4513 60.5263 12.4513ZM52.9449 14.4711C52.9449 19.2994 55.5735 21.596 59.046 21.596C60.5678 21.596 62.2418 21.2086 63.8743 20.4615C64.0127 20.5999 64.0542 20.8212 64.0542 21.0702C64.0542 21.4576 63.9435 21.845 63.8051 22.0248C63.2379 22.7027 60.1528 24.2937 57.7732 24.2937C53.2631 24.2937 49.4724 21.4161 49.4724 15.7439C49.4724 10.7496 52.8066 6.12882 57.6211 6.12882C62.1588 6.12882 64.068 9.89185 64.068 14.4573H52.9311L52.9449 14.4711Z" fill="#118751"/>
+          <path d="M77.6679 23.8647C77.6679 23.8647 77.3082 23.4358 77.3082 22.6196C79.0514 22.3014 79.8953 21.8448 79.8953 19.576V12.797C79.8953 9.78102 78.8024 8.25921 76.243 8.25921C74.7903 8.25921 73.1163 9.35215 72.4108 9.85019V20.9594C72.4108 22.2737 72.8673 22.2045 75.3575 22.6334C75.3575 23.4497 74.9978 23.8785 74.9978 23.8785H66.6971C66.6971 23.8785 66.3374 23.4497 66.3374 22.6334C68.1497 22.3152 68.9659 21.748 68.9659 19.5898V11.1091C68.9659 8.95094 68.0113 8.77109 66.3789 8.77109C66.3789 8.77109 66.1713 8.48057 66.1713 7.84417C66.1713 7.70582 66.1713 7.52597 66.199 7.38763C68.4679 7.20778 69.7822 6.7789 71.6222 6.14251C72.1894 6.59905 72.3278 7.0971 72.3693 8.27305C74.1124 7.0971 76.1323 6.14251 76.7272 6.14251C80.7669 6.14251 83.2848 7.73349 83.2848 11.9254V20.9733C83.2848 22.2184 83.4923 22.1077 86.2592 22.6472C86.2592 23.4635 85.8995 23.8924 85.8995 23.8924H77.6403L77.6679 23.8647Z" fill="#FFFFFF"/>
+          <path d="M98.088 12.4513C98.088 9.57365 96.746 8.02417 94.6155 8.02417C92.485 8.02417 90.5204 9.21395 90.5204 13.6272C90.6311 13.6272 98.088 12.4513 98.088 12.4513ZM90.5066 14.4711C90.5066 19.2994 93.1352 21.596 96.6077 21.596C98.1295 21.596 99.8035 21.2086 101.436 20.4615C101.574 20.5999 101.616 20.8212 101.616 21.0702C101.616 21.4576 101.505 21.845 101.367 22.0248C100.8 22.7027 97.7145 24.2937 95.3349 24.2937C90.8248 24.2937 87.0341 21.4161 87.0341 15.7439C87.0341 10.7496 90.3683 6.12882 95.1827 6.12882C99.7205 6.12882 101.63 9.89185 101.63 14.4573H90.4928L90.5066 14.4711Z" fill="#FFFFFF"/>
+          <path d="M103.511 22.6197C104.507 22.4399 105.144 22.0525 105.572 21.6651C105.96 21.3054 106.14 20.7797 106.14 19.6038V11.0955C106.14 9.0341 105.393 8.75741 103.553 8.75741C103.553 8.75741 103.345 8.46688 103.345 7.83048C103.345 7.69214 103.345 7.58146 103.373 7.37394C105.185 7.19409 106.319 6.94507 108.547 6.12882C109.391 6.69604 109.322 7.87199 109.322 8.89575C110.415 7.87199 112.268 6.12882 113.361 6.12882C114.178 6.12882 116.018 6.80672 116.806 7.83048C116.737 9.85034 115.561 11.4137 114.039 11.4137C113.652 9.85034 112.863 9.21395 112.019 9.21395C111.065 9.21395 109.93 10.0302 109.46 11.2753V20.9596C109.46 21.6375 109.529 21.9142 109.916 22.0525C110.415 22.2323 111.48 22.3015 113.14 22.6197C113.14 23.436 112.78 23.8648 112.78 23.8648H103.843C103.843 23.8648 103.483 23.436 103.483 22.6197" fill="#FFFFFF"/>
+          <path d="M121.04 12.4096C121.04 9.82253 122.423 7.83034 124.581 7.83034C126.739 7.83034 128.123 10.0577 128.123 12.4096C128.123 14.7615 126.56 16.4493 124.581 16.4493C122.603 16.4493 121.04 14.6785 121.04 12.4096ZM121.676 19.6451C121.676 19.0364 122.7 18.4415 123.35 18.151H124.125C128.095 18.151 131.54 16.0204 131.54 11.9531C131.54 10.9985 131.111 9.8917 130.793 9.36598L130.627 9.13079C131.001 8.46673 132.937 8.21771 133.615 8.07936C133.615 8.07936 133.615 7.23545 133.297 6.7374H128.635C127.86 6.7374 126.781 6.14251 125.231 6.14251C121.621 6.14251 117.678 8.27305 117.678 12.7001C117.678 14.8583 119.421 17.2102 122.216 17.8466C120.694 18.5522 118.494 19.8665 118.494 20.3645C118.494 21.4298 119.366 23.0346 121.081 23.4773H121.109C121.621 23.6157 121.897 23.6572 122.036 23.6848H122.119L123.046 23.8094C124.139 23.8094 125.093 23.8094 125.937 23.8509C129.548 23.9892 131.014 24.5288 131.014 26.3688C131.014 28.5685 128.566 30.0903 124.637 30.0903C122.16 30.0903 120.237 29.025 120.237 27.4617C120.237 26.3411 120.348 25.6079 121.551 24.7639L121.358 24.7363C121.219 24.7086 120.984 24.6809 120.569 24.5703C118.771 25.594 117.124 27.0467 117.124 27.6692C117.124 30.4777 119.435 31.958 123.544 31.958C128.718 31.958 134.044 29.4401 134.044 24.8331C134.044 18.6214 121.704 22.5642 121.704 19.659" fill="#FFFFFF"/>
+          <path d="M142.718 31.8612C142.884 31.7229 142.926 31.626 143.037 31.3631C144.448 27.7108 149.705 13.0876 150.66 10.2515C151.116 8.90952 151.752 8.25929 153.288 8.09327C153.288 7.24936 152.928 6.75131 152.928 6.75131H146.371C146.371 6.75131 146.011 7.31853 146.011 8.09327C147.325 8.30079 148.391 8.702 148.391 9.40756C148.391 11.7871 146.011 16.6431 144.877 19.7282C144.351 18.4139 140.837 10.3622 140.837 9.3799C140.837 8.53598 143.147 8.24545 143.881 8.10711C143.881 8.10711 143.881 7.26319 143.562 6.76515H135.262C135.262 6.76515 134.902 7.37387 134.874 8.10711C136.465 8.56365 136.687 9.28305 137.752 11.3721C137.959 11.801 142.359 21.1947 143.493 23.7541L141.695 28.2642L141.321 29.288C141.031 30.1734 139.592 30.5192 138.845 30.6576C138.845 30.6576 138.845 31.5153 139.163 31.9995H142.151C142.151 31.9995 142.552 32.0134 142.718 31.8889" fill="#FFFFFF"/>
+        </svg>
+      </a>
+      <span class="brand-divider"></span>
+      <span class="brand-title">Hierarchical Contract Intelligence</span>
       <span class="badge">Gemini 3.x + Append-Only BigQuery + pdf.js</span>
     </div>
     <div class="toolbar">
@@ -293,7 +640,7 @@
           <button class="tab-btn" id="tab-terms" onclick="setTab('terms')">Defined Terms</button>
           <button class="tab-btn" id="tab-exhibits" onclick="setTab('exhibits')">Exhibits Catalog</button>
         </div>
-        <label style="font-size:12px; display:flex; align-items:center; gap:6px; cursor:pointer;">
+        <label class="context-toggle-label">
           <input type="checkbox" id="context-toggle" checked onchange="renderLeftPane()" />
           Show Full Reconstructed Context
         </label>
@@ -309,9 +656,9 @@
         </div>
         <div style="display:flex; gap:6px; align-items:center;">
           <button onclick="changeZoom(-0.2)">Zoom -</button>
-          <span id="zoom-label">115%</span>
+          <span id="zoom-label" style="font-family:var(--font-mono); font-weight:700;">115%</span>
           <button onclick="changeZoom(0.2)">Zoom +</button>
-          <input type="number" id="jump-page-input" min="1" value="1" style="width:58px; background:#263349; color:#fff; border:1px solid #334155; border-radius:4px; padding:4px;" />
+          <input type="number" id="jump-page-input" min="1" value="1" />
           <button onclick="jumpToPage(parseInt(document.getElementById('jump-page-input').value || '1', 10))">Go to Page</button>
         </div>
       </div>
@@ -404,9 +751,9 @@
       }
       document.getElementById("doc-meta-bar").innerHTML = `
         <div>
-          <strong>${doc.filename}</strong> · <span>ID: <code>${doc.document_id}</code></span>
-          ${doc.effective_date ? ` · Effective: <strong>${doc.effective_date}</strong>` : ""}
-          ${partiesText ? ` · Parties: <span>${partiesText}</span>` : ""}
+          <strong>${escapeHtml(doc.filename)}</strong> · <span>ID: <code>${escapeHtml(doc.document_id)}</code></span>
+          ${doc.effective_date ? ` · Effective: <strong>${escapeHtml(doc.effective_date)}</strong>` : ""}
+          ${partiesText ? ` · Parties: <span>${escapeHtml(partiesText)}</span>` : ""}
         </div>
         <div>
           <span>Pages: <strong>${doc.page_count}</strong></span> ·
@@ -439,13 +786,13 @@
           card.onclick = () => jumpToPage(t.page_number);
           card.innerHTML = `
             <div class="card-header">
-              <span class="path-pill">"${t.term_name}"</span>
-              <span>Defined in <code>${t.defined_in_node_id}</code> · Page ${t.page_number}</span>
+              <span class="path-pill">"${escapeHtml(t.term_name)}"</span>
+              <span class="page-badge">Defined in <code>${escapeHtml(t.defined_in_node_id)}</code> · Page ${t.page_number}</span>
             </div>
             <div class="clause-text">${escapeHtml(t.verbatim_definition)}</div>
             <div class="chip-row">
-              <span class="chip">${t.definition_type}</span>
-              <span class="chip">Used in: ${t.referenced_in_nodes}</span>
+              <span class="chip">${escapeHtml(t.definition_type)}</span>
+              <span class="chip">Used in: ${escapeHtml(t.referenced_in_nodes)}</span>
             </div>
           `;
           container.appendChild(card);
@@ -461,12 +808,12 @@
           card.innerHTML = `
             <div class="card-header">
               <span class="path-pill">${escapeHtml(ex.exhibit_id)} — ${escapeHtml(ex.exhibit_title)}</span>
-              <span>Pages ${ex.page_start}–${ex.page_end}</span>
+              <span class="page-badge">Pages ${ex.page_start}–${ex.page_end}</span>
             </div>
-            <div class="clause-text"><code>${escapeHtml(ex.structured_entities_json)}</code></div>
+            <div class="clause-text"><code style="font-family:var(--font-mono); font-size:12px;">${escapeHtml(ex.structured_entities_json)}</code></div>
             <div class="chip-row">
-              <span class="chip">${ex.exhibit_modality}</span>
-              <span class="chip">Referenced by: ${ex.referenced_by_nodes}</span>
+              <span class="chip">${escapeHtml(ex.exhibit_modality)}</span>
+              <span class="chip">Referenced by: ${escapeHtml(ex.referenced_by_nodes)}</span>
               ${ex.has_unresolved_external_dep ? `<span class="chip flag-chip">UNRESOLVED_EXTERNAL_DEPENDENCY</span>` : ""}
             </div>
           `;
@@ -501,11 +848,11 @@
             <div>
               <span class="path-pill">${escapeHtml(c.canonical_path)}</span>
               <strong style="margin-left:6px;">${escapeHtml(c.clause_label)}</strong>
-              ${c.clause_title ? `<span style="color:#94a3b8; margin-left:6px;">${escapeHtml(c.clause_title)}</span>` : ""}
+              ${c.clause_title ? `<span class="clause-title-text">${escapeHtml(c.clause_title)}</span>` : ""}
               ${c.is_inline_clause ? `<span class="chip" style="margin-left:6px;">inline</span>` : ""}
             </div>
             <div>
-              <span style="color:#94a3b8; margin-right:6px;">p. ${c.page_start}${c.page_end !== c.page_start ? `–${c.page_end}` : ""}</span>
+              <span class="page-badge">p. ${c.page_start}${c.page_end !== c.page_start ? `–${c.page_end}` : ""}</span>
               <span class="status-pill status-${c.hitl_status}">${c.hitl_status}</span>
             </div>
           </div>
@@ -516,12 +863,12 @@
             ${c.reviewed_by ? `<span class="chip">Reviewed by ${escapeHtml(c.reviewed_by)}</span>` : ""}
           </div>
           <div class="review-drawer" onclick="event.stopPropagation()">
-            <label style="font-size:11px; color:#94a3b8;">Atomic Verbatim Text:</label>
+            <label class="drawer-label">Atomic Verbatim Text</label>
             <textarea id="edit-verbatim-${c.node_id}" rows="2">${escapeHtml(c.verbatim_text)}</textarea>
-            <label style="font-size:11px; color:#94a3b8;">Reconstructed Full-Context Text:</label>
+            <label class="drawer-label">Reconstructed Full-Context Text</label>
             <textarea id="edit-context-${c.node_id}" rows="3">${escapeHtml(c.reconstructed_context_text)}</textarea>
-            <div style="display:flex; gap:8px; align-items:center;">
-              <input type="text" id="edit-reviewer-${c.node_id}" value="${escapeHtml(c.reviewed_by || 'legal_analyst')}" placeholder="Reviewer" style="width:140px;" />
+            <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+              <input type="text" id="edit-reviewer-${c.node_id}" value="${escapeHtml(c.reviewed_by || 'legal_analyst')}" placeholder="Reviewer" style="width:150px;" />
               <input type="text" id="edit-notes-${c.node_id}" value="${escapeHtml(c.review_notes || '')}" placeholder="Review notes..." style="flex:1;" />
               <button class="success" onclick="approveClause('${c.node_id}')">Approve &amp; Save Version</button>
             </div>
