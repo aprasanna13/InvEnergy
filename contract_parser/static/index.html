@@ -779,6 +779,201 @@
       gap: 10px;
       box-shadow: var(--shadow-card);
     }
+
+    /* CR-4 BigQuery Conversational Analytics Data Agent Floating Chat UI */
+    .bq-agent-fab {
+      position: fixed;
+      bottom: 24px;
+      right: 24px;
+      z-index: 1200;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 11px 18px;
+      border-radius: 999px;
+      background: var(--brand-invenergy-green);
+      color: var(--neutrals-white);
+      border: 2px solid var(--brand-yellow);
+      font-family: var(--font-display);
+      font-size: 13.5px;
+      font-weight: 700;
+      letter-spacing: 0.02em;
+      cursor: pointer;
+      box-shadow: 0 8px 24px rgba(4, 43, 25, 0.32);
+      transition: background 180ms var(--ease-smooth), transform 180ms var(--ease-smooth), box-shadow 180ms var(--ease-smooth);
+    }
+    .bq-agent-fab:hover {
+      background: var(--brand-dark-green);
+      transform: translateY(-2px);
+      box-shadow: 0 12px 28px rgba(4, 43, 25, 0.42);
+    }
+    .bq-agent-window {
+      position: fixed;
+      bottom: 84px;
+      right: 24px;
+      width: 440px;
+      max-width: calc(100vw - 32px);
+      max-height: 620px;
+      z-index: 1200;
+      background: var(--neutrals-white);
+      border: 1px solid var(--neutrals-sage-green);
+      border-top: 4px solid var(--brand-invenergy-green);
+      border-radius: var(--radius-lg);
+      box-shadow: 0 16px 40px rgba(4, 43, 25, 0.28);
+      display: none;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    .bq-agent-window.open {
+      display: flex;
+    }
+    .bq-agent-window.expanded {
+      width: 680px;
+      max-height: 740px;
+    }
+    .bq-agent-header {
+      background: var(--brand-dark-green);
+      color: var(--neutrals-white);
+      padding: 10px 14px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 8px;
+    }
+    .bq-agent-header-actions {
+      display: flex;
+      gap: 6px;
+      align-items: center;
+    }
+    .bq-agent-header-actions button {
+      background: rgba(255, 255, 255, 0.12);
+      color: var(--neutrals-white);
+      border: 1px solid rgba(206, 228, 218, 0.35);
+      padding: 3px 8px;
+      font-size: 11.5px;
+      border-radius: var(--radius-sm);
+    }
+    .bq-agent-header-actions button:hover {
+      background: var(--brand-invenergy-green);
+      border-color: var(--brand-yellow);
+    }
+    .bq-agent-quick-bar {
+      background: var(--neutrals-mint-wash);
+      border-bottom: 1px solid var(--neutrals-sage-green);
+      padding: 8px 12px;
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+    .bq-agent-chip {
+      font-size: 11px;
+      font-weight: 600;
+      padding: 4px 9px;
+      border-radius: 999px;
+      background: var(--neutrals-white);
+      color: var(--brand-pine-green);
+      border: 1px solid var(--neutrals-sage-green);
+      cursor: pointer;
+      transition: background 150ms var(--ease-smooth), border-color 150ms var(--ease-smooth);
+    }
+    .bq-agent-chip:hover {
+      background: var(--neutrals-light-green);
+      border-color: var(--brand-invenergy-green);
+    }
+    .bq-agent-messages {
+      flex: 1;
+      overflow-y: auto;
+      padding: 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      background: #F7FAF8;
+      min-height: 260px;
+      max-height: 410px;
+    }
+    .bq-agent-window.expanded .bq-agent-messages {
+      max-height: 520px;
+    }
+    .bq-agent-msg {
+      padding: 10px 12px;
+      border-radius: var(--radius-md);
+      font-size: 12.5px;
+      line-height: 1.5;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .bq-agent-msg.user {
+      align-self: flex-end;
+      background: var(--brand-invenergy-green);
+      color: var(--neutrals-white);
+      max-width: 86%;
+      font-weight: 600;
+    }
+    .bq-agent-msg.agent {
+      align-self: stretch;
+      background: var(--neutrals-white);
+      color: var(--brand-dark-green);
+      border: 1px solid var(--neutrals-sage-green);
+      box-shadow: var(--shadow-card);
+    }
+    .bq-agent-table-wrap {
+      overflow-x: auto;
+      max-height: 220px;
+      border: 1px solid var(--neutrals-sage-green);
+      border-radius: var(--radius-sm);
+    }
+    .bq-agent-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 11.5px;
+    }
+    .bq-agent-table th {
+      background: var(--neutrals-mint-wash);
+      color: var(--brand-pine-green);
+      text-align: left;
+      padding: 5px 8px;
+      border-bottom: 1px solid var(--neutrals-sage-green);
+      font-family: var(--font-mono);
+      white-space: nowrap;
+      position: sticky;
+      top: 0;
+    }
+    .bq-agent-table td {
+      padding: 5px 8px;
+      border-bottom: 1px solid var(--neutrals-light-green);
+      vertical-align: top;
+    }
+    .bq-agent-doc-link {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 9px;
+      border-radius: var(--radius-sm);
+      background: var(--neutrals-mint-wash);
+      border: 1px solid var(--brand-invenergy-green);
+      color: var(--brand-pine-green);
+      font-size: 11.5px;
+      font-weight: 700;
+      text-decoration: none;
+    }
+    .bq-agent-doc-link:hover {
+      background: var(--neutrals-light-green);
+    }
+    .bq-agent-input-bar {
+      padding: 10px 12px;
+      background: var(--neutrals-white);
+      border-top: 1px solid var(--neutrals-sage-green);
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+    .bq-agent-input-bar input {
+      flex: 1;
+      padding: 7px 10px;
+      font-size: 12.5px;
+    }
   </style>
 </head>
 <body>
@@ -800,7 +995,7 @@
       </a>
       <span class="brand-divider"></span>
       <span class="brand-title">Portfolio Contract Intelligence</span>
-      <span class="badge">300 Projects × 50 Landowners · 8-Table BigQuery</span>
+      <span class="badge">300 Projects × 50 Landowners · 8-Table Portfolio Model</span>
     </div>
     <div class="toolbar">
       <select id="upload-project-selector" title="Select Target ERP Project before uploading PDF"></select>
@@ -1900,6 +2095,190 @@
       }
     }
 
+    function toggleBqAgentWindow() {
+      const win = document.getElementById("bq-agent-window");
+      if (!win) return;
+      win.classList.toggle("open");
+      if (win.classList.contains("open")) {
+        const input = document.getElementById("bq-agent-input");
+        if (input) input.focus();
+      }
+    }
+
+    function toggleBqAgentExpand() {
+      const win = document.getElementById("bq-agent-window");
+      const btn = document.getElementById("bq-agent-expand-btn");
+      if (!win) return;
+      win.classList.toggle("expanded");
+      if (btn) {
+        btn.textContent = win.classList.contains("expanded") ? "⤡ Narrow" : "⤢ Expand";
+      }
+    }
+
+    function clearBqAgentChat() {
+      const feed = document.getElementById("bq-agent-messages");
+      if (!feed) return;
+      feed.innerHTML = `
+        <div class="bq-agent-msg agent">
+          <div><strong>Contract Intelligence Agent Ready.</strong> Ask any portfolio question across all projects, landowners, clauses, and special conditions.</div>
+        </div>
+      `;
+    }
+
+    async function openAgentDocumentInWorkbench(docId) {
+      if (!docId) return;
+      const selector = document.getElementById("document-selector");
+      if (selector && [...selector.options].some(o => o.value === docId)) {
+        selector.value = docId;
+      }
+      await loadDocumentBundle(docId);
+    }
+
+    async function sendBqAgentQuestion(presetText = null) {
+      const input = document.getElementById("bq-agent-input");
+      const sendBtn = document.getElementById("bq-agent-send-btn");
+      const feed = document.getElementById("bq-agent-messages");
+      if (!feed) return;
+
+      const question = (presetText !== null ? String(presetText) : (input ? input.value : "")).trim();
+      if (!question) return;
+      if (presetText === null && input) {
+        input.value = "";
+      }
+
+      const userBubble = document.createElement("div");
+      userBubble.className = "bq-agent-msg user";
+      userBubble.textContent = question;
+      feed.appendChild(userBubble);
+
+      const pendingCard = document.createElement("div");
+      pendingCard.className = "bq-agent-msg agent";
+      pendingCard.innerHTML = `<div><em>Querying Contract Intelligence Agent...</em></div>`;
+      feed.appendChild(pendingCard);
+      feed.scrollTop = feed.scrollHeight;
+
+      if (sendBtn) {
+        sendBtn.disabled = true;
+        sendBtn.textContent = "Querying...";
+      }
+
+      try {
+        const res = await fetch("/api/v1/agent/chat", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ question })
+        });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          throw new Error(err.detail || `HTTP ${res.status}`);
+        }
+        const turn = await res.json();
+        pendingCard.remove();
+        renderBqAgentTurn(turn);
+      } catch (err) {
+        pendingCard.innerHTML = `<div style="color:var(--feedback-red);"><strong>Agent Query Error:</strong> ${escapeHtml(err.message)}</div>`;
+      } finally {
+        if (sendBtn) {
+          sendBtn.disabled = false;
+          sendBtn.textContent = "Send";
+        }
+        feed.scrollTop = feed.scrollHeight;
+      }
+    }
+
+    function renderBqAgentTurn(turn) {
+      const feed = document.getElementById("bq-agent-messages");
+      if (!feed || !turn) return;
+
+      const card = document.createElement("div");
+      card.className = "bq-agent-msg agent";
+
+      const answerHtml = `<div style="white-space:pre-wrap;">${escapeHtml(turn.answer || "")}</div>`;
+
+      let tableHtml = "";
+      const rows = Array.isArray(turn.rows) ? turn.rows : [];
+      const cols = (Array.isArray(turn.columns) && turn.columns.length > 0)
+        ? turn.columns
+        : (rows.length > 0 ? Object.keys(rows[0]) : []);
+      if (rows.length > 0 && cols.length > 0) {
+        const thead = cols.map(c => `<th>${escapeHtml(c)}</th>`).join("");
+        const tbody = rows.map(r => {
+          const cells = cols.map(c => {
+            const val = r[c];
+            const text = val === null || val === undefined ? "" : (typeof val === "object" ? JSON.stringify(val) : String(val));
+            return `<td>${escapeHtml(text)}</td>`;
+          }).join("");
+          return `<tr>${cells}</tr>`;
+        }).join("");
+        tableHtml = `
+          <div class="bq-agent-table-wrap">
+            <table class="bq-agent-table">
+              <thead><tr>${thead}</tr></thead>
+              <tbody>${tbody}</tbody>
+            </table>
+          </div>
+        `;
+      }
+
+      let docsHtml = "";
+      const docLinks = Array.isArray(turn.document_links) ? turn.document_links : [];
+      if (docLinks.length > 0) {
+        const linksMarkup = docLinks.map(link => `
+          <div style="display:inline-flex; gap:4px; align-items:center; flex-wrap:wrap;">
+            <a class="bq-agent-doc-link" href="${escapeHtml(link.pdf_url)}" target="_blank" rel="noopener noreferrer">
+              📄 Open ${escapeHtml(link.filename)} (PDF)
+            </a>
+            <button type="button" class="bq-agent-chip" data-doc-id="${escapeHtml(link.document_id)}" onclick="openAgentDocumentInWorkbench(this.dataset.docId)">
+              Load in Workbench
+            </button>
+          </div>
+        `).join("");
+        docsHtml = `
+          <div style="display:flex; flex-direction:column; gap:4px; margin-top:2px;">
+            <strong style="font-size:11px; color:var(--brand-pine-green); text-transform:uppercase; letter-spacing:0.04em;">Referenced Contracts:</strong>
+            <div style="display:flex; gap:6px; flex-wrap:wrap;">${linksMarkup}</div>
+          </div>
+        `;
+      }
+
+      let sqlDetailsHtml = "";
+      const thoughts = Array.isArray(turn.thoughts) ? turn.thoughts : [];
+      if (turn.generated_sql || thoughts.length > 0) {
+        const sqlBlock = turn.generated_sql
+          ? `<div style="margin-top:6px;"><strong style="font-size:11px;">Generated SQL:</strong><pre style="margin:4px 0 0 0; padding:8px; background:var(--neutrals-mint-wash); border:1px solid var(--neutrals-sage-green); border-radius:4px; font-family:var(--font-mono); font-size:11px; overflow-x:auto; white-space:pre-wrap;">${escapeHtml(turn.generated_sql)}</pre></div>`
+          : "";
+        const thoughtsBlock = thoughts.length > 0
+          ? `<div style="margin-top:6px;"><strong style="font-size:11px;">Agent Reasoning Steps (${thoughts.length}):</strong><ul style="margin:4px 0 0 16px; padding:0; font-size:11px; color:var(--neutrals-gray);">${thoughts.map(t => `<li>${escapeHtml(t)}</li>`).join("")}</ul></div>`
+          : "";
+        sqlDetailsHtml = `
+          <details style="font-size:11.5px; color:var(--brand-pine-green); margin-top:2px;">
+            <summary style="cursor:pointer; font-weight:700;">Inspect Generated SQL &amp; Agent Trace</summary>
+            ${sqlBlock}
+            ${thoughtsBlock}
+          </details>
+        `;
+      }
+
+      let followupsHtml = "";
+      const followups = Array.isArray(turn.followup_questions) ? turn.followup_questions : [];
+      if (followups.length > 0) {
+        const chips = followups.map(fq => `
+          <button type="button" class="bq-agent-chip" data-question="${escapeHtml(fq)}" onclick="sendBqAgentQuestion(this.dataset.question)">
+            ${escapeHtml(fq)}
+          </button>
+        `).join("");
+        followupsHtml = `
+          <div style="display:flex; gap:6px; flex-wrap:wrap; margin-top:4px;">
+            ${chips}
+          </div>
+        `;
+      }
+
+      card.innerHTML = `${answerHtml}${tableHtml}${docsHtml}${sqlDetailsHtml}${followupsHtml}`;
+      feed.appendChild(card);
+      feed.scrollTop = feed.scrollHeight;
+    }
+
     loadPortfolioHierarchy();
   </script>
 
@@ -1926,6 +2305,39 @@
           <button class="primary" onclick="submitNewProject()" style="padding:6px 14px; background:var(--primary-green); color:#fff; border:none; cursor:pointer; font-weight:600;">Create ERP Project</button>
         </div>
       </div>
+    </div>
+  </div>
+
+  <!-- CR-4 Bottom-Right Contract Intelligence Agent Launcher & Window -->
+  <button id="bq-agent-fab" class="bq-agent-fab" onclick="toggleBqAgentWindow()" title="Ask the Contract Intelligence Agent">
+    <span>💬 Ask Agent</span>
+  </button>
+
+  <div id="bq-agent-window" class="bq-agent-window" role="dialog" aria-label="Contract Intelligence Agent">
+    <div class="bq-agent-header">
+      <div>
+        <div style="font-family:var(--font-display); font-size:14px; font-weight:700;">Contract Intelligence Agent</div>
+        <div id="bq-agent-subtitle" style="font-size:11px; color:var(--neutrals-sage-green);">Portfolio Analytics · Single-Turn Assistant</div>
+      </div>
+      <div class="bq-agent-header-actions">
+        <button id="bq-agent-expand-btn" type="button" onclick="toggleBqAgentExpand()" title="Expand or narrow chat window">⤢ Expand</button>
+        <button type="button" onclick="clearBqAgentChat()" title="Clear chat feed">Clear</button>
+        <button type="button" onclick="toggleBqAgentWindow()" title="Minimize chat window">✕</button>
+      </div>
+    </div>
+    <div class="bq-agent-quick-bar">
+      <button type="button" class="bq-agent-chip" data-question="List all documents and their filenames" onclick="sendBqAgentQuestion(this.dataset.question)">List all documents &amp; filenames</button>
+      <button type="button" class="bq-agent-chip" data-question="Summarize special conditions by constraint category" onclick="sendBqAgentQuestion(this.dataset.question)">Special conditions by category</button>
+      <button type="button" class="bq-agent-chip" data-question="Which special conditions have financial penalties?" onclick="sendBqAgentQuestion(this.dataset.question)">Conditions with financial penalties</button>
+    </div>
+    <div id="bq-agent-messages" class="bq-agent-messages">
+      <div class="bq-agent-msg agent">
+        <div><strong>Contract Intelligence Agent Ready.</strong> Ask any portfolio question across all projects, landowners, clauses, and special conditions.</div>
+      </div>
+    </div>
+    <div class="bq-agent-input-bar">
+      <input type="text" id="bq-agent-input" placeholder="Ask a question about projects, landowners, or special conditions..." onkeydown="if(event.key==='Enter') sendBqAgentQuestion()" />
+      <button id="bq-agent-send-btn" class="primary" type="button" onclick="sendBqAgentQuestion()">Send</button>
     </div>
   </div>
 </body>

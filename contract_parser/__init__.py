@@ -2,6 +2,9 @@
 
 from contract_parser.config import PipelineConfig
 from contract_parser.schemas import (
+    AgentChatRequest,
+    AgentChatResponse,
+    AgentDocumentLink,
     ClauseReviewRequest,
     ClauseRow,
     ConstraintCategory,
@@ -32,6 +35,7 @@ from contract_parser.schemas import (
     SpecialConditionRow,
     build_dnd_checklist_item,
     classify_dnd_condition,
+    parse_data_agent_events,
 )
 
 
@@ -53,6 +57,9 @@ def parse_contract(
 
 
 __all__ = [
+    "AgentChatRequest",
+    "AgentChatResponse",
+    "AgentDocumentLink",
     "ClauseReviewRequest",
     "ClauseRow",
     "ConstraintCategory",
@@ -85,4 +92,5 @@ __all__ = [
     "build_dnd_checklist_item",
     "classify_dnd_condition",
     "parse_contract",
+    "parse_data_agent_events",
 ]

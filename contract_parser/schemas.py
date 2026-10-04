@@ -745,3 +745,193 @@ LANDOWNER_CSV_COLUMNS: list[str] = list(LandownerRow.model_fields.keys())
 DND_SIGNOFF_CSV_COLUMNS: list[str] = list(DNDChecklistSignoffRow.model_fields.keys())
 
 
+class AgentChatRequest(BaseModel):
+    """Single-turn natural-language prompt sent to POST /api/v1/agent/chat (CR-4)."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    question: str
+
+
+class AgentDocumentLink(BaseModel):
+    """Direct clickable PDF link for a contract referenced in a BigQuery Data Agent response."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    document_id: str
+    filename: str
+    pdf_url: str
+
+
+class AgentChatResponse(BaseModel):
+    """Normalized single-turn response from the BigQuery Conversational Analytics Data Agent (CR-4)."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    agent_urn: str
+    data_agent_resource: str
+    question: str
+    answer: str
+    generated_sql: str | None = None
+    columns: list[str] = Field(default_factory=list)
+    rows: list[dict[str, object]] = Field(default_factory=list)
+    thoughts: list[str] = Field(default_factory=list)
+    followup_questions: list[str] = Field(default_factory=list)
+    document_links: list[AgentDocumentLink] = Field(default_factory=list)
+
+
+_DOC_ID_TOKEN_RE = re.compile(r"\b(doc_[a-zA-Z0-9_]+)\b")
+
+
+def parse_data_agent_events(
+    events: list[dict[str, object]],
+    *,
+    question: str,
+    agent_urn: str,
+    data_agent_resource: str,
+    doc_filename_lookup: dict[str, str] | None = None,
+) -> AgentChatResponse:
+    """Normalize raw `geminidataanalytics` v1beta `:chat` event stream into `AgentChatResponse`."""
+    answer_parts: list[str] = []
+    thoughts: list[str] = []
+    followup_questions: list[str] = []
+    generated_sql: str | None = None
+    columns: list[str] = []
+    rows: list[dict[str, object]] = []
+
+    for ev in events or []:
+        if not isinstance(ev, dict):
+            continue
+        sys_msg_raw = ev.get("systemMessage")
+        sys_msg = sys_msg_raw if isinstance(sys_msg_raw, dict) else ev
+
+        text_block = sys_msg.get("text")
+        if isinstance(text_block, dict):
+            raw_parts = text_block.get("parts")
+            parts = raw_parts if isinstance(raw_parts, list) else []
+            text_type = str(text_block.get("textType") or "")
+            joined = "".join(str(p) for p in parts if p is not None).strip()
+            if joined:
+                if text_type == "THOUGHT":
+                    thoughts.append(joined)
+                elif text_type == "FOLLOWUP_QUESTIONS":
+                    for p in parts:
+                        q_str = str(p).strip()
+                        if q_str and q_str not in followup_questions:
+                            followup_questions.append(q_str)
+                else:
+                    answer_parts.append(joined)
+
+        data_block = sys_msg.get("data")
+        if isinstance(data_block, dict):
+            sql_candidate = data_block.get("generatedSql")
+            if isinstance(sql_candidate, str) and sql_candidate.strip():
+                generated_sql = sql_candidate.strip()
+
+            result_block = data_block.get("result")
+            if isinstance(result_block, dict):
+                schema_block = result_block.get("schema")
+                if isinstance(schema_block, dict):
+                    fields_raw = schema_block.get("fields")
+                    if isinstance(fields_raw, list):
+                        cols = [
+                            str(f.get("name"))
+                            for f in fields_raw
+                            if isinstance(f, dict) and f.get("name")
+                        ]
+                        if cols:
+                            columns = cols
+                data_rows = result_block.get("data")
+                if isinstance(data_rows, list):
+                    rows = [
+                        dict(r)
+                        for r in data_rows[:100]
+                        if isinstance(r, dict)
+                    ]
+                    if not columns and rows:
+                        columns = list(rows[0].keys())
+
+    answer = "\n\n".join(answer_parts).strip()
+    if not answer:
+        if rows:
+            answer = f"Returned {len(rows)} row(s) from BigQuery."
+        elif thoughts:
+            answer = thoughts[-1]
+        else:
+            answer = "No response returned from BigQuery Data Agent."
+
+    lookup: dict[str, str] = {
+        str(k): str(v)
+        for k, v in (doc_filename_lookup or {}).items()
+        if k and v
+    }
+    for row in rows:
+        row_doc_id = row.get("document_id")
+        row_filename = row.get("filename")
+        if isinstance(row_doc_id, str) and row_doc_id.startswith("doc_") and isinstance(row_filename, str) and row_filename.strip():
+            lookup[row_doc_id] = row_filename.strip()
+
+    reverse_filename_lookup: dict[str, str] = {
+        fn.strip().lower(): doc_id
+        for doc_id, fn in lookup.items()
+        if fn and fn.strip()
+    }
+
+    seen_docs: dict[str, str] = {}
+
+    for row in rows:
+        row_doc_id = row.get("document_id")
+        row_filename_val = row.get("filename")
+        row_filename_str = (
+            row_filename_val.strip()
+            if isinstance(row_filename_val, str) and row_filename_val.strip()
+            else None
+        )
+        for val in row.values():
+            if not isinstance(val, str):
+                continue
+            for match in _DOC_ID_TOKEN_RE.findall(val):
+                if match not in seen_docs:
+                    seen_docs[match] = (
+                        (row_filename_str if match == row_doc_id else None)
+                        or lookup.get(match)
+                        or f"{match}.pdf"
+                    )
+            val_clean = val.strip().lower()
+            if val_clean in reverse_filename_lookup:
+                matched_id = reverse_filename_lookup[val_clean]
+                if matched_id not in seen_docs:
+                    seen_docs[matched_id] = lookup.get(matched_id, val.strip())
+
+    for match in _DOC_ID_TOKEN_RE.findall(answer):
+        if match not in seen_docs:
+            seen_docs[match] = lookup.get(match, f"{match}.pdf")
+
+    answer_lower = answer.lower()
+    for fn_lower, matched_id in reverse_filename_lookup.items():
+        if fn_lower and matched_id not in seen_docs:
+            pattern = rf"(?<![a-z0-9_.-]){re.escape(fn_lower)}(?![a-z0-9_.-])"
+            if re.search(pattern, answer_lower):
+                seen_docs[matched_id] = lookup.get(matched_id, f"{matched_id}.pdf")
+
+    document_links = [
+        AgentDocumentLink(
+            document_id=doc_id,
+            filename=filename,
+            pdf_url=f"/api/v1/documents/{doc_id}/pdf",
+        )
+        for doc_id, filename in seen_docs.items()
+    ]
+
+    return AgentChatResponse(
+        agent_urn=agent_urn,
+        data_agent_resource=data_agent_resource,
+        question=question.strip(),
+        answer=answer,
+        generated_sql=generated_sql,
+        columns=columns,
+        rows=rows,
+        thoughts=thoughts,
+        followup_questions=followup_questions,
+        document_links=document_links,
+    )

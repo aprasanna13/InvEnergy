@@ -3,8 +3,15 @@
 from __future__ import annotations
 
 import os
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
+
+DEFAULT_BQ_DATA_AGENT_URN = (
+    "urn:agent:projects-255093976233:projects:255093976233:"
+    "locations:us:geminidataanalytics:dataAgents:"
+    "agent_f8454b44-a4aa-4c94-accf-245b5e6b1f11"
+)
 
 
 @dataclass(slots=True)
@@ -34,6 +41,11 @@ class PipelineConfig:
     )
     bq_dataset_id: str = field(
         default_factory=lambda: os.getenv("BQ_DATASET_ID", "contract_intelligence")
+    )
+    bq_data_agent_urn: str = field(
+        default_factory=lambda: os.getenv(
+            "BQ_DATA_AGENT_URN", DEFAULT_BQ_DATA_AGENT_URN
+        )
     )
     local_data_dir: Path = field(
         default_factory=lambda: Path(os.getenv("LOCAL_DATA_DIR", "./data"))
@@ -67,3 +79,27 @@ class PipelineConfig:
     def bq_dataset_fqn(self) -> str:
         """Return fully-qualified BigQuery dataset ID (`project.dataset`)."""
         return f"{self.google_cloud_project}.{self.bq_dataset_id}"
+
+    def resolve_data_agent_resource(self) -> tuple[str, str, str]:
+        """Resolve `bq_data_agent_urn` into `(project_id_or_number, location, data_agent_resource)`."""
+        raw = (self.bq_data_agent_urn or DEFAULT_BQ_DATA_AGENT_URN).strip()
+        urn_match = re.search(
+            r"projects:([^:]+):locations:([^:]+):geminidataanalytics:dataAgents:([^:\s]+)",
+            raw,
+        )
+        if urn_match:
+            proj, loc, agent_id = urn_match.group(1), urn_match.group(2), urn_match.group(3)
+            return proj, loc, f"projects/{proj}/locations/{loc}/dataAgents/{agent_id}"
+
+        res_match = re.search(
+            r"projects/([^/]+)/locations/([^/]+)/dataAgents/([^/\s]+)",
+            raw,
+        )
+        if res_match:
+            proj, loc, agent_id = res_match.group(1), res_match.group(2), res_match.group(3)
+            return proj, loc, f"projects/{proj}/locations/{loc}/dataAgents/{agent_id}"
+
+        proj = self.google_cloud_project or "255093976233"
+        loc = "us"
+        return proj, loc, f"projects/{proj}/locations/{loc}/dataAgents/{raw}"
+

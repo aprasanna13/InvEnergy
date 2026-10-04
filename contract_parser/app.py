@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
 import json
 import logging
 import re
+import sqlite3
 import sys
 from pathlib import Path
 
@@ -21,6 +23,8 @@ from contract_parser.gemini_parser import (
     make_landowner_id as _make_landowner_id,
 )
 from contract_parser.schemas import (
+    AgentChatRequest,
+    AgentChatResponse,
     ClauseReviewRequest,
     CreateDNDSignoffRequest,
     CreateProjectRequest,
@@ -30,6 +34,7 @@ from contract_parser.schemas import (
     IngestionStatus,
     ParsedContractBundle,
     ProjectRow,
+    parse_data_agent_events,
     utc_now_iso,
 )
 from contract_parser.storage import ContractStorageService, compute_document_id
@@ -216,6 +221,76 @@ def ingest_contract(
     )
 
 
+def _build_local_doc_filename_lookup(
+    storage: ContractStorageService | None,
+) -> dict[str, str]:
+    """Build `{document_id: filename}` from local SQLite first to avoid an extra BigQuery round-trip per chat turn."""
+    if storage is None:
+        return {}
+    if hasattr(storage, "get_document_filename_lookup"):
+        return storage.get_document_filename_lookup()
+    try:
+        return {d.document_id: d.filename for d in storage.list_documents()}
+    except Exception as exc:
+        logger.debug("list_documents filename lookup fallback: %s", exc)
+        return {}
+
+
+def query_bigquery_data_agent(
+    question: str,
+    config: PipelineConfig | None = None,
+    storage: ContractStorageService | None = None,
+) -> AgentChatResponse:
+    """Execute a stateless single-turn query against the registered BigQuery Conversational Analytics Data Agent."""
+    cleaned = (question or "").strip()
+    if not cleaned:
+        raise ValueError("Question must not be empty.")
+
+    cfg = config or PipelineConfig()
+    proj, loc, data_agent_resource = cfg.resolve_data_agent_resource()
+
+    import google.auth
+    import google.auth.transport.requests
+    import requests as http_requests
+
+    creds, _ = google.auth.default(
+        scopes=["https://www.googleapis.com/auth/cloud-platform"]
+    )
+    creds.refresh(google.auth.transport.requests.Request())
+
+    url = f"https://geminidataanalytics.googleapis.com/v1beta/projects/{proj}/locations/{loc}:chat"
+    headers = {
+        "Authorization": f"Bearer {creds.token}",
+        "Content-Type": "application/json",
+        "x-goog-user-project": cfg.google_cloud_project,
+    }
+    payload = {
+        "messages": [{"userMessage": {"text": cleaned}}],
+        "dataAgentContext": {"dataAgent": data_agent_resource},
+    }
+
+    resp = http_requests.post(url, headers=headers, json=payload, timeout=90)
+    if resp.status_code >= 400:
+        raise RuntimeError(
+            f"BigQuery Data Agent HTTP {resp.status_code}: {resp.text[:500]}"
+        )
+
+    raw_json = resp.json()
+    events: list[dict[str, object]] = (
+        raw_json
+        if isinstance(raw_json, list)
+        else ([raw_json] if isinstance(raw_json, dict) else [])
+    )
+    doc_lookup = _build_local_doc_filename_lookup(storage)
+    return parse_data_agent_events(
+        events,
+        question=cleaned,
+        agent_urn=cfg.bq_data_agent_urn,
+        data_agent_resource=data_agent_resource,
+        doc_filename_lookup=doc_lookup,
+    )
+
+
 def create_app(
     config: PipelineConfig | None = None,
     storage_service: ContractStorageService | None = None,
@@ -228,8 +303,8 @@ def create_app(
 
     fastapi_app = FastAPI(
         title="Hierarchical Contract Parsing & Portfolio Obligation Intelligence",
-        version="0.4.0",
-        description="Gemini-First Multimodal Contract Hierarchy Parser, 8-Table Portfolio & Field Crew DND Store, and pdf.js HITL Review UI",
+        version="0.5.0",
+        description="Gemini-First Multimodal Contract Hierarchy Parser, 8-Table Portfolio & Field Crew DND Store, BigQuery Data Agent Chat, and pdf.js HITL Review UI",
     )
     fastapi_app.add_middleware(
         CORSMiddleware,
@@ -529,6 +604,45 @@ def create_app(
                 "Content-Disposition": f'attachment; filename="{document_id}_{csv_name}"'
             },
         )
+
+    @fastapi_app.get("/api/v1/agent/info")
+    async def get_bigquery_agent_info_endpoint() -> dict[str, str]:
+        active_cfg: PipelineConfig = fastapi_app.state.config
+        proj, loc, data_agent_resource = active_cfg.resolve_data_agent_resource()
+        return {
+            "agent_urn": active_cfg.bq_data_agent_urn,
+            "project": proj,
+            "location": loc,
+            "data_agent_resource": data_agent_resource,
+        }
+
+    @fastapi_app.post("/api/v1/agent/chat")
+    async def chat_with_bigquery_agent_endpoint(
+        req: AgentChatRequest,
+    ) -> dict[str, object]:
+        active_cfg: PipelineConfig = fastapi_app.state.config
+        active_store: ContractStorageService = fastapi_app.state.storage
+        question = (req.question or "").strip()
+        if not question:
+            raise HTTPException(
+                status_code=400, detail="Question must not be empty."
+            )
+        try:
+            response = await asyncio.to_thread(
+                query_bigquery_data_agent,
+                question=question,
+                config=active_cfg,
+                storage=active_store,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except Exception as exc:
+            logger.exception("BigQuery Data Agent chat request failed")
+            raise HTTPException(
+                status_code=502,
+                detail=f"BigQuery Data Agent request failed: {exc}",
+            ) from exc
+        return response.model_dump(mode="json")
 
     return fastapi_app
 

@@ -9,7 +9,7 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 from contract_parser.app import create_app, ingest_contract
-from contract_parser.config import PipelineConfig
+from contract_parser.config import DEFAULT_BQ_DATA_AGENT_URN, PipelineConfig
 from contract_parser.gemini_parser import (
     _make_landowner_id,
     normalize_and_enrich_extraction,
@@ -23,6 +23,9 @@ from contract_parser.schemas import (
     LANDOWNER_CSV_COLUMNS,
     PROJECT_CSV_COLUMNS,
     SPECIAL_CONDITION_CSV_COLUMNS,
+    AgentChatRequest,
+    AgentChatResponse,
+    AgentDocumentLink,
     ClauseReviewRequest,
     ClauseRow,
     ConstraintCategory,
@@ -44,6 +47,7 @@ from contract_parser.schemas import (
     SpecialConditionRow,
     build_dnd_checklist_item,
     classify_dnd_condition,
+    parse_data_agent_events,
 )
 from contract_parser.storage import (
     BQ_CLAUSES_SCHEMA,
@@ -1329,6 +1333,65 @@ def test_cr2_project_portfolio_hierarchy_and_centralized_search(tmp_path: Path) 
     assert approved_search.status_code == 200
     assert approved_search.json()["count"] == 2
 
+    # 7. Verify canonical corporate suffix matching, Multi-Contract Stack transition, and batch _list_special_conditions_for_documents
+    from contract_parser.gemini_parser import canonical_party_key
+
+    assert canonical_party_key("Tallulah Pines Timber Co., LLC") == canonical_party_key(
+        "Tallulah Pines Timber"
+    )
+    doc2_id = up2.json()["document"]["document_id"]
+    batch_scs = store._list_special_conditions_for_documents({doc1_id, doc2_id})
+    assert len(batch_scs.get(doc1_id, [])) == 2
+    assert len(batch_scs.get(doc2_id, [])) == 2
+
+    b_llc = store.get_bundle(doc1_id).model_copy(deep=True)
+    b_llc.document = b_llc.document.model_copy(
+        update={
+            "document_id": "doc_timber_1",
+            "project_id": "prj_cedar_lantern_wind",
+            "landowner_id": "lnd_unassigned",
+            "grantor_landowner_name": "Tallulah Pines Timber, LLC",
+        }
+    )
+    b_llc.clauses = [
+        c for c in b_llc.clauses if not c.node_id.startswith("EXHIBIT_A.PARCEL_")
+    ]
+    store.persist_bundle(b_llc)
+    _, _, lnd_1 = store.bind_document_to_portfolio(
+        b_llc, project_id="prj_cedar_lantern_wind"
+    )
+    assert lnd_1.parcel_summary == "Single Parcel / Standard Agreement"
+
+    b_plain = b_llc.model_copy(deep=True)
+    b_plain.document = b_plain.document.model_copy(
+        update={
+            "document_id": "doc_timber_2",
+            "grantor_landowner_name": "Tallulah Pines Timber",
+        }
+    )
+    store.persist_bundle(b_plain)
+    _, _, lnd_2 = store.bind_document_to_portfolio(
+        b_plain, project_id="prj_cedar_lantern_wind"
+    )
+    assert lnd_2.landowner_id == lnd_1.landowner_id
+    assert lnd_2.contract_count == 2
+    assert lnd_2.parcel_summary == "Multi-Contract Stack (2 Agreements)"
+
+    b_third = b_llc.model_copy(deep=True)
+    b_third.document = b_third.document.model_copy(
+        update={
+            "document_id": "doc_timber_3",
+            "grantor_landowner_name": "Tallulah Pines Timber Co., LLC",
+        }
+    )
+    store.persist_bundle(b_third)
+    _, _, lnd_3 = store.bind_document_to_portfolio(
+        b_third, project_id="prj_cedar_lantern_wind"
+    )
+    assert lnd_3.landowner_id == lnd_1.landowner_id
+    assert lnd_3.contract_count == 3
+    assert lnd_3.parcel_summary == "Multi-Contract Stack (3 Agreements)"
+
 
 def test_cr3_subcontractor_dnd_checklist_and_signoff(tmp_path: Path) -> None:
     """Verify CR-3 Subcontractor Field Crew DND Checklist synthesis, HITL safety gate, and tailgate sign-off (CR3-UT-1, CR3-IT-1, CR3-IT-2)."""
@@ -1650,4 +1713,294 @@ def test_cr3_subcontractor_dnd_checklist_and_signoff(tmp_path: Path) -> None:
     assert "Midwest Wind Erectors Inc." in csv_text
 
 
+def test_cr4_bigquery_data_agent_urn_and_chat_proxy(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """Verify CR-4 BigQuery Data Agent URN resolution, event stream normalization, reverse filename links, and FastAPI proxy routes (CR4-UT-1, CR4-UT-2, CR4-IT-1)."""
+    # 1. CR4-UT-1: Verify URN and resource path resolution
+    default_cfg = PipelineConfig()
+    proj, loc, resource = default_cfg.resolve_data_agent_resource()
+    assert proj == "255093976233"
+    assert loc == "us"
+    assert (
+        resource
+        == "projects/255093976233/locations/us/dataAgents/agent_f8454b44-a4aa-4c94-accf-245b5e6b1f11"
+    )
 
+    res_cfg = PipelineConfig(
+        bq_data_agent_urn="projects/255093976233/locations/us/dataAgents/agent_f8454b44-a4aa-4c94-accf-245b5e6b1f11"
+    )
+    assert res_cfg.resolve_data_agent_resource() == (
+        "255093976233",
+        "us",
+        "projects/255093976233/locations/us/dataAgents/agent_f8454b44-a4aa-4c94-accf-245b5e6b1f11",
+    )
+
+    # 2. CR4-UT-2: Verify parse_data_agent_events on multi-event geminidataanalytics stream
+    raw_events = [
+        {
+            "systemMessage": {
+                "text": {
+                    "parts": ["Inspecting documents_latest and special_conditions_latest views..."],
+                    "textType": "THOUGHT",
+                }
+            }
+        },
+        {
+            "systemMessage": {
+                "data": {
+                    "generatedSql": (
+                        "SELECT document_id, filename, special_conditions_count "
+                        "FROM `pr-tftest.contract_intelligence.documents_latest` "
+                        "ORDER BY special_conditions_count DESC"
+                    )
+                }
+            }
+        },
+        {
+            "systemMessage": {
+                "data": {
+                    "result": {
+                        "schema": {
+                            "fields": [
+                                {"name": "document_id"},
+                                {"name": "filename"},
+                                {"name": "special_conditions_count"},
+                            ]
+                        },
+                        "data": [
+                            {
+                                "document_id": "doc_demo_dnd_pendelton",
+                                "filename": "Pendelton_Wind_Lease.pdf",
+                                "special_conditions_count": 4,
+                            }
+                        ],
+                    }
+                }
+            }
+        },
+        {
+            "systemMessage": {
+                "text": {
+                    "parts": [
+                        "Contract doc_demo_dnd_pendelton (Pendelton_Wind_Lease.pdf) has 4 special conditions."
+                    ],
+                    "textType": "FINAL_RESPONSE",
+                }
+            }
+        },
+        {
+            "systemMessage": {
+                "text": {
+                    "parts": [
+                        "Which special conditions have financial penalties?",
+                        "Show all Red Zone DND items for Pendelton_Wind_Lease.pdf",
+                    ],
+                    "textType": "FOLLOWUP_QUESTIONS",
+                }
+            }
+        },
+    ]
+
+    parsed = parse_data_agent_events(
+        raw_events,
+        question="Which contract has the most special conditions?",
+        agent_urn=DEFAULT_BQ_DATA_AGENT_URN,
+        data_agent_resource=resource,
+    )
+    assert (
+        parsed.answer
+        == "Contract doc_demo_dnd_pendelton (Pendelton_Wind_Lease.pdf) has 4 special conditions."
+    )
+    assert "documents_latest" in (parsed.generated_sql or "")
+    assert parsed.columns == [
+        "document_id",
+        "filename",
+        "special_conditions_count",
+    ]
+    assert len(parsed.rows) == 1
+    assert parsed.thoughts == [
+        "Inspecting documents_latest and special_conditions_latest views..."
+    ]
+    assert len(parsed.followup_questions) == 2
+    assert len(parsed.document_links) == 1
+    assert parsed.document_links[0].document_id == "doc_demo_dnd_pendelton"
+    assert parsed.document_links[0].filename == "Pendelton_Wind_Lease.pdf"
+    assert (
+        parsed.document_links[0].pdf_url
+        == "/api/v1/documents/doc_demo_dnd_pendelton/pdf"
+    )
+
+    # Verify reverse filename-to-document_id lookup and fallback row summary when FINAL_RESPONSE is omitted
+    filename_only_events = [
+        {
+            "systemMessage": {
+                "data": {
+                    "generatedSql": "SELECT filename FROM `pr-tftest.contract_intelligence.documents_latest`",
+                    "result": {
+                        "schema": {"fields": [{"name": "filename"}]},
+                        "data": [{"filename": "Cedar_Lantern_DND_Lease.pdf"}],
+                    },
+                }
+            }
+        }
+    ]
+    parsed_fn_only = parse_data_agent_events(
+        filename_only_events,
+        question="List all filenames.",
+        agent_urn=DEFAULT_BQ_DATA_AGENT_URN,
+        data_agent_resource=resource,
+        doc_filename_lookup={"doc_cedar_001": "Cedar_Lantern_DND_Lease.pdf"},
+    )
+    assert parsed_fn_only.answer == "Returned 1 row(s) from BigQuery."
+    assert len(parsed_fn_only.document_links) == 1
+    assert parsed_fn_only.document_links[0].document_id == "doc_cedar_001"
+    assert (
+        parsed_fn_only.document_links[0].filename
+        == "Cedar_Lantern_DND_Lease.pdf"
+    )
+    assert (
+        parsed_fn_only.document_links[0].pdf_url
+        == "/api/v1/documents/doc_cedar_001/pdf"
+    )
+
+    # 3. CR4-IT-1: Verify FastAPI /api/v1/agent/info, /api/v1/agent/chat, and index.html launcher
+    cfg = PipelineConfig(
+        local_data_dir=tmp_path / "cr4_data",
+        use_cloud_storage=False,
+        use_bigquery=False,
+    )
+    store = ContractStorageService(cfg)
+
+    class CR4FixtureExtractor:
+        def extract(
+            self,
+            *,
+            document_id: str,
+            gcs_pdf_uri: str,
+            pdf_bytes: bytes | None = None,
+            project_id: str = "prj_cedar_lantern_wind",
+            landowner_id: str = "lnd_unassigned",
+        ) -> GeminiContractExtraction:
+            del pdf_bytes
+            return normalize_and_enrich_extraction(
+                extraction=build_synthetic_accommodation_fixture(),
+                document_id=document_id,
+                gcs_pdf_uri=gcs_pdf_uri,
+                project_id=project_id,
+                landowner_id=landowner_id,
+            )
+
+    client = TestClient(
+        create_app(
+            config=cfg,
+            storage_service=store,
+            extractor=CR4FixtureExtractor(),
+        )
+    )
+    up_res = client.post(
+        "/api/v1/documents/upload",
+        data={"project_id": "prj_cedar_lantern_wind"},
+        files={
+            "file": (
+                "Synthetic_Accommodation_Agreement.pdf",
+                b"%PDF-1.4 cr4 agent test",
+                "application/pdf",
+            )
+        },
+    )
+    assert up_res.status_code == 200
+    uploaded_doc_id = up_res.json()["document"]["document_id"]
+
+    # Verify index.html contains the bottom-right launcher and chat window
+    ui_res = client.get("/")
+    assert ui_res.status_code == 200
+    assert 'id="bq-agent-fab"' in ui_res.text
+    assert 'id="bq-agent-window"' in ui_res.text
+    assert "Ask Agent" in ui_res.text
+    assert "Contract Intelligence Agent" in ui_res.text
+
+    # Verify GET /api/v1/agent/info
+    info_res = client.get("/api/v1/agent/info")
+    assert info_res.status_code == 200
+    info_json = info_res.json()
+    assert info_json["project"] == "255093976233"
+    assert info_json["location"] == "us"
+    assert info_json["data_agent_resource"] == resource
+
+    # Verify POST /api/v1/agent/chat rejects blank questions with HTTP 400
+    blank_res = client.post("/api/v1/agent/chat", json={"question": "   "})
+    assert blank_res.status_code == 400
+
+    # Mock google.auth.default and requests.post to verify full query_bigquery_data_agent execution
+    import google.auth
+    import requests as http_requests
+
+    class DummyCreds:
+        token = "mock-adc-bearer-token"
+
+        def refresh(self, req: object) -> None:
+            del req
+
+    class DummyHttpResponse:
+        status_code = 200
+        text = "OK"
+
+        def json(self) -> list[dict[str, object]]:
+            return [
+                {
+                    "systemMessage": {
+                        "data": {
+                            "generatedSql": "SELECT filename FROM `pr-tftest.contract_intelligence.documents_latest`",
+                            "result": {
+                                "schema": {"fields": [{"name": "filename"}]},
+                                "data": [
+                                    {
+                                        "filename": "Synthetic_Accommodation_Agreement.pdf"
+                                    }
+                                ],
+                            },
+                        }
+                    }
+                },
+                {
+                    "systemMessage": {
+                        "text": {
+                            "parts": [
+                                "Found 1 contract: Synthetic_Accommodation_Agreement.pdf."
+                            ],
+                            "textType": "FINAL_RESPONSE",
+                        }
+                    }
+                },
+            ]
+
+    monkeypatch.setattr(
+        google.auth, "default", lambda scopes=None: (DummyCreds(), "pr-tftest")
+    )
+    monkeypatch.setattr(
+        http_requests,
+        "post",
+        lambda url, headers=None, json=None, timeout=None: DummyHttpResponse(),
+    )
+
+    chat_res = client.post(
+        "/api/v1/agent/chat",
+        json={"question": "List all documents and their filenames."},
+    )
+    assert chat_res.status_code == 200
+    chat_json = chat_res.json()
+    assert (
+        chat_json["answer"]
+        == "Found 1 contract: Synthetic_Accommodation_Agreement.pdf."
+    )
+    assert len(chat_json["document_links"]) == 1
+    assert chat_json["document_links"][0]["document_id"] == uploaded_doc_id
+    assert (
+        chat_json["document_links"][0]["filename"]
+        == "Synthetic_Accommodation_Agreement.pdf"
+    )
+    assert (
+        chat_json["document_links"][0]["pdf_url"]
+        == f"/api/v1/documents/{uploaded_doc_id}/pdf"
+    )

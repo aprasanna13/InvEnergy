@@ -13,7 +13,7 @@ from pathlib import Path
 from google.cloud import bigquery, storage
 
 from contract_parser.config import PipelineConfig
-from contract_parser.gemini_parser import _make_landowner_id
+from contract_parser.gemini_parser import _make_landowner_id, canonical_party_key
 from contract_parser.schemas import (
     CLAUSE_CSV_COLUMNS,
     DEFINED_TERM_CSV_COLUMNS,
@@ -921,6 +921,37 @@ class ContractStorageService:
             ]
         return out_docs
 
+    def get_document_filename_lookup(self) -> dict[str, str]:
+        """Return `{document_id: filename}` from local SQLite first, falling back to `list_documents()` only if empty."""
+        self._ensure_local_dirs_and_db()
+        lookup: dict[str, str] = {}
+        try:
+            with sqlite3.connect(self.local_db_path) as conn:
+                conn.row_factory = sqlite3.Row
+                rows = conn.execute(
+                    """
+                    SELECT document_id, filename FROM (
+                        SELECT document_id, filename,
+                               ROW_NUMBER() OVER (PARTITION BY document_id ORDER BY updated_at DESC, rowid DESC) AS rn
+                        FROM documents
+                    ) WHERE rn = 1
+                    """
+                ).fetchall()
+            for r in rows:
+                doc_id = r["document_id"]
+                fn = r["filename"]
+                if doc_id and fn:
+                    lookup[str(doc_id)] = str(fn)
+        except Exception as exc:
+            logger.debug("SQLite filename lookup fallback: %s", exc)
+
+        if not lookup:
+            try:
+                lookup = {d.document_id: d.filename for d in self.list_documents()}
+            except Exception as exc:
+                logger.debug("list_documents filename lookup fallback: %s", exc)
+        return lookup
+
     def _get_bundle_from_sqlite(self, document_id: str) -> ParsedContractBundle | None:
         """Retrieve a complete bundle from local SQLite if present."""
         self._ensure_local_dirs_and_db()
@@ -1404,10 +1435,12 @@ class ContractStorageService:
                     break
         if matched_landowner is None:
             candidate_id = _make_landowner_id(project.project_id, grantor_name)
+            grantor_canon = canonical_party_key(grantor_name)
             for lnd in existing_landowners:
                 if (
                     lnd.landowner_id == candidate_id
                     or lnd.landowner_name.strip().lower() == grantor_name.strip().lower()
+                    or (grantor_canon and canonical_party_key(lnd.landowner_name) == grantor_canon)
                 ):
                     matched_landowner = lnd
                     break
@@ -1456,6 +1489,7 @@ class ContractStorageService:
                 "energy_technology": project.energy_technology,
                 "grantor_landowner_name": resolved_landowner_name,
                 "grantee_entity_name": grantee_name,
+                "updated_at": now_iso,
             }
         )
         updated_scs = [
@@ -1463,6 +1497,7 @@ class ContractStorageService:
                 update={
                     "project_id": project.project_id,
                     "landowner_id": resolved_landowner_id,
+                    "updated_at": now_iso,
                 }
             )
             for sc in bundle.special_conditions
@@ -1565,13 +1600,28 @@ class ContractStorageService:
                 if (existing and existing.qrm_party_id)
                 else f"QRM-{hashlib.sha256(lid.encode('utf-8')).hexdigest()[:6].upper()}"
             )
+            base_summary = (
+                existing.parcel_summary
+                if (existing and existing.parcel_summary)
+                else "Single Parcel / Standard Agreement"
+            )
+            is_generic_summary = (
+                base_summary == "Single Parcel / Standard Agreement"
+                or base_summary.startswith("Multi-Contract Stack (")
+            )
+            if contract_count > 1 and is_generic_summary:
+                computed_summary = f"Multi-Contract Stack ({contract_count} Agreements)"
+            elif contract_count <= 1 and is_generic_summary:
+                computed_summary = "Single Parcel / Standard Agreement"
+            else:
+                computed_summary = base_summary
             new_lnd = LandownerRow(
                 landowner_id=lid,
                 project_id=project_id,
                 landowner_name=l_name,
                 qrm_party_id=qrm_id,
                 grantee_entity_name=grantee,
-                parcel_summary=existing.parcel_summary if existing else "Single Parcel / Standard Agreement",
+                parcel_summary=computed_summary,
                 is_multi_parcel=is_multi,
                 contract_count=contract_count,
                 special_conditions_count=sc_count,
@@ -1582,6 +1632,7 @@ class ContractStorageService:
                 or existing.contract_count != new_lnd.contract_count
                 or existing.special_conditions_count != new_lnd.special_conditions_count
                 or existing.is_multi_parcel != new_lnd.is_multi_parcel
+                or existing.parcel_summary != new_lnd.parcel_summary
             ):
                 self.append_landowner_row(new_lnd)
                 updated_landowners.append(new_lnd)
@@ -1609,6 +1660,84 @@ class ContractStorageService:
             self.append_project_row(new_proj)
             return new_proj, updated_landowners
         return project, updated_landowners
+
+    def _list_special_conditions_for_documents(
+        self, document_ids: set[str]
+    ) -> dict[str, list[SpecialConditionRow]]:
+        """Batch-load deduplicated SpecialConditionRow items for the given document_ids without N+1 full-bundle queries."""
+        if not document_ids:
+            return {}
+        self._ensure_local_dirs_and_db()
+        scs_by_key: dict[tuple[str, str], SpecialConditionRow] = {}
+        doc_id_list = sorted(document_ids)
+        rows: list[sqlite3.Row] = []
+
+        with sqlite3.connect(self.local_db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            for i in range(0, len(doc_id_list), 900):
+                chunk = doc_id_list[i : i + 900]
+                placeholders = ", ".join(["?"] * len(chunk))
+                rows.extend(
+                    conn.execute(
+                        f"""
+                        SELECT * FROM (
+                            SELECT *, ROW_NUMBER() OVER (PARTITION BY document_id, condition_id ORDER BY updated_at DESC, rowid DESC) AS rn
+                            FROM special_conditions
+                            WHERE document_id IN ({placeholders})
+                        ) WHERE rn = 1
+                        ORDER BY page_number ASC, condition_id ASC
+                        """,
+                        chunk,
+                    ).fetchall()
+                )
+        for r in rows:
+            r_keys = set(r.keys())
+            sc_obj = SpecialConditionRow.model_validate(
+                {
+                    k: self._coalesce_sc_field(k, r[k] if k in r_keys else None)
+                    for k in SPECIAL_CONDITION_CSV_COLUMNS
+                }
+            )
+            scs_by_key[(sc_obj.document_id, sc_obj.condition_id)] = sc_obj
+
+        if self.config.use_bigquery:
+            try:
+                self.ensure_bq_tables()
+                params = [
+                    bigquery.ArrayQueryParameter("doc_ids", "STRING", doc_id_list)
+                ]
+                job_config = bigquery.QueryJobConfig(query_parameters=params)
+                sql = f"""
+                    SELECT {", ".join(SPECIAL_CONDITION_CSV_COLUMNS)}
+                    FROM `{self.config.bq_dataset_fqn}.special_conditions`
+                    WHERE document_id IN UNNEST(@doc_ids)
+                    QUALIFY ROW_NUMBER() OVER (PARTITION BY document_id, condition_id ORDER BY updated_at DESC) = 1
+                    ORDER BY page_number ASC, condition_id ASC
+                """
+                for r in self.bq_client.query(sql, job_config=job_config).result():
+                    row_dict: dict[str, object] = {}
+                    for k in SPECIAL_CONDITION_CSV_COLUMNS:
+                        val = r[k]
+                        if hasattr(val, "isoformat"):
+                            val = val.isoformat()
+                        row_dict[k] = self._coalesce_sc_field(k, val)
+                    bq_sc = SpecialConditionRow.model_validate(row_dict)
+                    key = (bq_sc.document_id, bq_sc.condition_id)
+                    existing = scs_by_key.get(key)
+                    if existing is None or str(bq_sc.updated_at) >= str(existing.updated_at):
+                        scs_by_key[key] = bq_sc
+            except Exception as exc:
+                logger.warning(
+                    "BigQuery _list_special_conditions_for_documents fallback to SQLite: %s",
+                    exc,
+                )
+
+        grouped: dict[str, list[SpecialConditionRow]] = {}
+        for sc in scs_by_key.values():
+            grouped.setdefault(sc.document_id, []).append(sc)
+        for doc_scs in grouped.values():
+            doc_scs.sort(key=lambda s: (s.page_number, s.condition_id))
+        return grouped
 
     def search_portfolio(
         self,
@@ -1644,6 +1773,7 @@ class ContractStorageService:
             energy_technology=energy_technology,
         )
         docs_by_id = {d.document_id: d for d in docs}
+        scs_by_doc = self._list_special_conditions_for_documents(set(docs_by_id.keys()))
 
         query_lower = q.strip().lower() if q and q.strip() else None
         enriched_conditions: list[dict[str, object]] = []
@@ -1654,12 +1784,35 @@ class ContractStorageService:
             "STRUCTURE_BARN_WELL_SETBACK": {"SETBACK_OR_BUFFER", "STRUCTURE_BARN_WELL_SETBACK"},
             "CROP_OR_TIMBER_COMPENSATION": {"CROP_OR_TIMBER_COMPENSATION", "TREE_VEGETATION_PROTECTION"},
             "TREE_VEGETATION_PROTECTION": {"CROP_OR_TIMBER_COMPENSATION", "TREE_VEGETATION_PROTECTION"},
-            "CONSTRUCTION_OR_BLACKOUT_WINDOW": {"CONSTRUCTION_OR_BLACKOUT_WINDOW", "TIMING_NOISE_HUNTING_BLACKOUT"},
-            "TIMING_NOISE_HUNTING_BLACKOUT": {"CONSTRUCTION_OR_BLACKOUT_WINDOW", "TIMING_NOISE_HUNTING_BLACKOUT"},
-            "GATES_FENCING_OR_LIVESTOCK": {"GATES_FENCING_OR_LIVESTOCK", "LIVESTOCK_AGRICULTURE"},
-            "LIVESTOCK_AGRICULTURE": {"GATES_FENCING_OR_LIVESTOCK", "LIVESTOCK_AGRICULTURE"},
+            "CONSTRUCTION_OR_BLACKOUT_WINDOW": {
+                "CONSTRUCTION_OR_BLACKOUT_WINDOW",
+                "TIMING_NOISE_HUNTING_BLACKOUT",
+            },
+            "TIMING_NOISE_HUNTING_BLACKOUT": {
+                "CONSTRUCTION_OR_BLACKOUT_WINDOW",
+                "TIMING_NOISE_HUNTING_BLACKOUT",
+                "NOISE_OR_SHADOW_FLICKER",
+                "BLASTING_OR_EXCAVATION",
+            },
+            "NOISE_OR_SHADOW_FLICKER": {"NOISE_OR_SHADOW_FLICKER", "TIMING_NOISE_HUNTING_BLACKOUT"},
+            "BLASTING_OR_EXCAVATION": {"BLASTING_OR_EXCAVATION", "TIMING_NOISE_HUNTING_BLACKOUT"},
+            "GATES_FENCING_OR_LIVESTOCK": {
+                "GATES_FENCING_OR_LIVESTOCK",
+                "LIVESTOCK_AGRICULTURE",
+            },
+            "LIVESTOCK_AGRICULTURE": {
+                "GATES_FENCING_OR_LIVESTOCK",
+                "LIVESTOCK_AGRICULTURE",
+                "DRAINAGE_OR_SOIL_RESTORATION",
+            },
+            "DRAINAGE_OR_SOIL_RESTORATION": {"DRAINAGE_OR_SOIL_RESTORATION", "LIVESTOCK_AGRICULTURE"},
             "ACCESS_ROAD_OR_PARCEL_RESTRICTION": {"ACCESS_ROAD_OR_PARCEL_RESTRICTION", "ACCESS_ROAD_GATE_PROTOCOL"},
             "ACCESS_ROAD_GATE_PROTOCOL": {"ACCESS_ROAD_OR_PARCEL_RESTRICTION", "ACCESS_ROAD_GATE_PROTOCOL"},
+            "DECOMMISSIONING_OR_BOND": {"DECOMMISSIONING_OR_BOND", "FINANCIAL_PENALTY_LIQUIDATED_DAMAGES"},
+            "FINANCIAL_PENALTY_LIQUIDATED_DAMAGES": {
+                "DECOMMISSIONING_OR_BOND",
+                "FINANCIAL_PENALTY_LIQUIDATED_DAMAGES",
+            },
             "OTHER_SPECIAL_CONDITION": {"OTHER_SPECIAL_CONDITION", "OTHER_CUSTOM_RIDER"},
             "OTHER_CUSTOM_RIDER": {"OTHER_SPECIAL_CONDITION", "OTHER_CUSTOM_RIDER"},
         }
@@ -1670,10 +1823,7 @@ class ContractStorageService:
         )
 
         for doc in docs:
-            try:
-                bundle = self.get_bundle(doc.document_id)
-            except Exception:
-                continue
+            doc_conditions = scs_by_doc.get(doc.document_id, [])
             proj = all_projects.get(doc.project_id)
             lnd = all_landowners.get((doc.project_id, doc.landowner_id))
             proj_name = proj.project_name if proj else doc.project_id
@@ -1684,7 +1834,7 @@ class ContractStorageService:
                 else (doc.grantor_landowner_name or doc.landowner_id)
             )
 
-            for sc in bundle.special_conditions:
+            for sc in doc_conditions:
                 if allowed_categories and str(sc.constraint_category) not in allowed_categories:
                     continue
                 if hitl_status and str(sc.hitl_status) != str(hitl_status):

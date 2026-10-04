@@ -394,6 +394,20 @@ def _synthesize_fallback_condition(
     )
 
 
+_CORPORATE_SUFFIX_RE = re.compile(
+    r"(?:[\s,]+(?:l\.?\s*l\.?\s*c|l\.?\s*l\.?\s*p|l\.?\s*p|inc|incorporated|corp|corporation|company|co|ltd|limited|holdings?)\b\.?)+[\s,.]*$",
+    re.IGNORECASE,
+)
+
+
+def canonical_party_key(name: str | None) -> str:
+    """Return a normalized alphanumeric party key with trailing corporate suffixes removed."""
+    if not name or not name.strip():
+        return ""
+    stripped = _CORPORATE_SUFFIX_RE.sub("", name.strip()).strip()
+    return re.sub(r"[^a-z0-9]+", "_", (stripped or name).lower()).strip("_")
+
+
 def make_landowner_id(project_id: str, landowner_name: str | None) -> str:
     """Create a deterministic QRM-compatible landowner_id slug from project_id and landowner_name."""
     if not landowner_name or not landowner_name.strip():
