@@ -16,6 +16,8 @@
       --brand-pine-green: #0F633C;
       --brand-canopy-green: #084B2C;
       --brand-yellow: #FFCF0B;
+      --primary-green: var(--brand-invenergy-green);
+      --primary-slate: var(--brand-dark-green);
 
       /* Neutrals & Surfaces */
       --neutrals-white: #FFFFFF;
@@ -474,6 +476,20 @@
       font-weight: 700;
     }
 
+    .chip.constraint-chip {
+      background: var(--neutrals-mint-wash);
+      color: var(--brand-pine-green);
+      border: 1px solid var(--brand-invenergy-green);
+      font-weight: 700;
+    }
+
+    .chip.penalty-chip {
+      background: #FEF2F2;
+      color: var(--feedback-red);
+      border: 1px solid #FECACA;
+      font-weight: 700;
+    }
+
     /* HITL Review Drawer */
     .review-drawer {
       margin-top: 12px;
@@ -594,6 +610,175 @@
         min-height: 70dvh;
       }
     }
+
+    /* CR-2 Portfolio Hierarchy Bar & Technology Badges */
+    .portfolio-bar {
+      background: var(--brand-canopy-green);
+      color: var(--neutrals-white);
+      border-bottom: 1px solid rgba(206, 228, 218, 0.28);
+      padding: 8px 22px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      flex-wrap: wrap;
+      font-size: 12px;
+    }
+
+    .portfolio-filters {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .portfolio-bar select {
+      background: rgba(255, 255, 255, 0.1);
+      color: var(--neutrals-white);
+      border: 1px solid rgba(206, 228, 218, 0.35);
+      padding: 5px 10px;
+      font-size: 12px;
+    }
+
+    .portfolio-bar select option {
+      background: var(--brand-dark-green);
+      color: var(--neutrals-white);
+    }
+
+    .portfolio-kpis {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .kpi-pill {
+      background: rgba(255, 255, 255, 0.1);
+      border: 1px solid rgba(206, 228, 218, 0.3);
+      padding: 3px 9px;
+      border-radius: 999px;
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--neutrals-mint-wash);
+    }
+
+    .tech-badge {
+      font-size: 10.5px;
+      padding: 2px 8px;
+      border-radius: 999px;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      color: var(--neutrals-white);
+      display: inline-block;
+    }
+
+    .tech-ONSHORE_WIND { background: var(--tech-wind); }
+    .tech-SOLAR { background: #D97706; }
+    .tech-STORAGE { background: var(--tech-storage); }
+    .tech-TRANSMISSION { background: var(--tech-transmission); }
+    .tech-GEOTHERMAL { background: var(--tech-services); }
+
+    .portfolio-search-bar {
+      background: var(--neutrals-white);
+      border: 1px solid var(--neutrals-sage-green);
+      border-radius: var(--radius-lg);
+      padding: 12px;
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      align-items: center;
+      box-shadow: var(--shadow-card);
+    }
+
+    /* CR-3 Subcontractor / Construction Field Crew DND Checklist Styles */
+    .dnd-interlock-banner {
+      border-radius: var(--radius-lg);
+      padding: 14px 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      box-shadow: var(--shadow-card);
+    }
+    .dnd-interlock-HOLD_PENDING_HITL {
+      background: #FEF2F2;
+      border: 2px solid #DC2626;
+      color: #7F1D1D;
+    }
+    .dnd-interlock-READY_FOR_DISPATCH {
+      background: #ECFDF5;
+      border: 2px solid var(--primary-green);
+      color: var(--brand-dark-green);
+    }
+    .dnd-interlock-NO_CONSTRAINTS_IDENTIFIED {
+      background: var(--neutrals-white);
+      border: 1px solid var(--neutrals-sage-green);
+      color: var(--primary-slate);
+    }
+    .dnd-trade-badge {
+      font-family: var(--font-mono);
+      font-size: 10.5px;
+      font-weight: 700;
+      padding: 2px 8px;
+      border-radius: var(--radius-sm);
+      background: var(--brand-canopy-green);
+      color: var(--neutrals-white);
+      letter-spacing: 0.03em;
+    }
+    .dnd-severity-RED_ZONE_NO_GO {
+      background: #FEE2E2;
+      color: #991B1B;
+      border: 1px solid #FCA5A5;
+      font-weight: 700;
+    }
+    .dnd-severity-SEASONAL_BLACKOUT {
+      background: #FEF3C7;
+      color: #92400E;
+      border: 1px solid #FCD34D;
+      font-weight: 700;
+    }
+    .dnd-severity-MANDATORY_PROTOCOL {
+      background: #FFEDD5;
+      color: #9A3412;
+      border: 1px solid #FDBA74;
+      font-weight: 700;
+    }
+    .dnd-clearance-CLEARED_FOR_DISPATCH {
+      background: #D1FAE5;
+      color: #065F46;
+      border: 1px solid #6EE7B7;
+      font-weight: 700;
+    }
+    .dnd-clearance-HOLD_VERIFY_WITH_LAND_AGENT {
+      background: #FEE2E2;
+      color: #B91C1C;
+      border: 1px solid #F87171;
+      font-weight: 700;
+    }
+    .dnd-directive-box {
+      font-size: 13.5px;
+      font-weight: 700;
+      color: var(--primary-slate);
+      background: var(--neutrals-mint-wash);
+      border-left: 4px solid var(--primary-green);
+      padding: 8px 12px;
+      border-radius: 2px;
+    }
+    .clause-card.flagged .dnd-directive-box {
+      background: #FFFBEB;
+      border-left-color: #D97706;
+    }
+    .dnd-signoff-card {
+      background: var(--neutrals-white);
+      border: 1px solid var(--neutrals-sage-green);
+      border-top: 3px solid var(--primary-green);
+      border-radius: var(--radius-lg);
+      padding: 14px 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      box-shadow: var(--shadow-card);
+    }
   </style>
 </head>
 <body>
@@ -603,7 +788,7 @@
       <a href="https://invenergy.com/" target="_blank" rel="noopener noreferrer" class="brand-logo" title="Invenergy — Energy Innovation. Trusted Execution.">
         <svg width="132" height="28" viewBox="0 0 154 32" fill="none" xmlns="http://www.w3.org/2000/svg" aria-label="Invenergy">
           <path d="M0.110677 22.4813C1.45264 22.2738 2.73926 21.9833 2.73926 19.0365V3.33415C2.72543 1.63249 1.27279 1.63249 0 1.42497C0 0.539551 0.359701 0 0.359701 0H8.39763C8.39763 0 8.75733 0.608724 8.75733 1.42497C7.51221 1.63249 6.19792 1.88151 6.19792 4.82829V20.7105C6.19792 21.2362 6.19792 21.7757 6.65446 21.9141C7.18018 22.0939 8.4253 22.343 9.49057 22.4813C9.49057 23.3252 9.13087 23.8648 9.13087 23.8648H0.456543C0.456543 23.8648 0.0968425 23.2975 0.0968425 22.4813" fill="#FFFFFF"/>
-          <path d="M23.4086 23.8647C23.4086 23.8647 23.0489 23.4358 23.0489 22.6196C24.792 22.3014 25.6359 21.8448 25.6359 19.576V12.797C25.6359 9.78102 24.543 8.25921 21.9836 8.25921C20.531 8.25921 18.857 9.35215 18.1514 9.85019V20.9594C18.1514 22.2737 18.6079 22.2045 21.0982 22.6334C21.0982 23.4497 20.7385 23.8785 20.7385 23.8785H12.4377C12.4377 23.8785 12.078 23.4497 12.078 22.6334C13.8903 22.3152 14.7066 21.748 14.7066 19.5898V11.1091C14.7066 8.95094 13.752 8.77109 12.1195 8.77109C12.1195 8.77109 11.912 8.48057 11.912 7.84417C11.912 7.70582 11.912 7.52597 11.9396 7.38763C14.2085 7.20778 15.5228 6.7789 17.3628 6.14251C17.93 6.59905 18.0684 7.0971 18.1099 8.27305C19.8531 7.0971 21.8729 6.14251 22.4678 6.14251C26.5075 6.14251 29.0254 7.73349 29.0254 11.9254V20.9733C29.0254 22.2184 29.2329 22.1077 31.9999 22.6472C31.9999 23.4635 31.6402 23.8924 31.6402 23.8924H23.3809L23.4086 23.8647Z" fill="#FFFFFF"/>
+          <path d="M23.4086 23.8647C23.4086 23.8647 23.0489 23.4358 23.0489 22.6196C24.792 22.3014 25.6359 21.8448 25.6359 19.576V12.797C25.6359 9.78102 24.543 8.25921 21.9836 8.25921C20.531 8.25921 18.857 9.35215 18.1514 9.85019V20.9594C18.1514 22.2737 18.6079 22.2045 21.0982 22.6334C21.0982 23.4497 20.7385 23.8785 20.7385 23.8785H12.4377C12.4377 23.8785 12.078 23.4497 12.078 22.6334C13.8903 22.3152 14.7066 21.748 14.7066 19.5898V11.1091C14.7066 8.95094 13.752 8.77109 12.1195 8.77109C12.1195 8.77109 11.912 8.48057 11.912 7.84417C11.912 7.70582 11.912 7.52597 11.9396 7.38763C14.2085 7.20778 15.5228 6.7789 17.3628 6.14251C17.93 6.59905 72.3278 7.0971 18.1099 8.27305C19.8531 7.0971 21.8729 6.14251 22.4678 6.14251C26.5075 6.14251 29.0254 7.73349 29.0254 11.9254V20.9733C29.0254 22.2184 29.2329 22.1077 31.9999 22.6472C31.9999 23.4635 31.6402 23.8924 31.6402 23.8924H23.3809L23.4086 23.8647Z" fill="#FFFFFF"/>
           <path d="M33.6601 11.3444C33.1621 10.0993 32.9131 9.53207 32.3182 8.8265C32 8.43913 31.5019 8.23161 30.9347 8.07943C30.9347 7.30469 31.2944 6.73747 31.2944 6.73747H39.1248C39.1248 6.73747 39.4845 7.30469 39.4845 8.07943C38.0596 8.35613 36.4686 8.53598 36.4686 9.28305C36.4686 9.71192 36.6484 10.0993 36.8283 10.5558L40.868 20.1017C40.868 20.1017 43.2752 12.6172 43.6349 11.4828C43.8839 10.625 44.0915 9.98861 44.0915 9.39372C44.0915 8.68816 43.2752 8.30079 41.8917 8.07943C41.8917 7.30469 42.2099 6.73747 42.2099 6.73747H48.4079C48.4079 6.73747 48.7676 7.26319 48.7676 8.07943C47.8821 8.19011 47.4533 8.53598 47.1351 8.89568C46.7062 9.32455 46.388 10.1685 46.0421 11.2337C45.7516 12.0915 42.8878 20.1294 41.7811 22.5781C41.283 23.6434 40.1901 24.2106 39.2632 24.2798L33.6601 11.3444Z" fill="#FFFFFF"/>
           <path d="M60.5263 12.4513C60.5263 9.57365 59.1844 8.02417 57.0538 8.02417C54.9233 8.02417 52.9588 9.21395 52.9588 13.6272C53.0695 13.6272 60.5263 12.4513 60.5263 12.4513ZM52.9449 14.4711C52.9449 19.2994 55.5735 21.596 59.046 21.596C60.5678 21.596 62.2418 21.2086 63.8743 20.4615C64.0127 20.5999 64.0542 20.8212 64.0542 21.0702C64.0542 21.4576 63.9435 21.845 63.8051 22.0248C63.2379 22.7027 60.1528 24.2937 57.7732 24.2937C53.2631 24.2937 49.4724 21.4161 49.4724 15.7439C49.4724 10.7496 52.8066 6.12882 57.6211 6.12882C62.1588 6.12882 64.068 9.89185 64.068 14.4573H52.9311L52.9449 14.4711Z" fill="#118751"/>
           <path d="M77.6679 23.8647C77.6679 23.8647 77.3082 23.4358 77.3082 22.6196C79.0514 22.3014 79.8953 21.8448 79.8953 19.576V12.797C79.8953 9.78102 78.8024 8.25921 76.243 8.25921C74.7903 8.25921 73.1163 9.35215 72.4108 9.85019V20.9594C72.4108 22.2737 72.8673 22.2045 75.3575 22.6334C75.3575 23.4497 74.9978 23.8785 74.9978 23.8785H66.6971C66.6971 23.8785 66.3374 23.4497 66.3374 22.6334C68.1497 22.3152 68.9659 21.748 68.9659 19.5898V11.1091C68.9659 8.95094 68.0113 8.77109 66.3789 8.77109C66.3789 8.77109 66.1713 8.48057 66.1713 7.84417C66.1713 7.70582 66.1713 7.52597 66.199 7.38763C68.4679 7.20778 69.7822 6.7789 71.6222 6.14251C72.1894 6.59905 72.3278 7.0971 72.3693 8.27305C74.1124 7.0971 76.1323 6.14251 76.7272 6.14251C80.7669 6.14251 83.2848 7.73349 83.2848 11.9254V20.9733C83.2848 22.2184 83.4923 22.1077 86.2592 22.6472C86.2592 23.4635 85.8995 23.8924 85.8995 23.8924H77.6403L77.6679 23.8647Z" fill="#FFFFFF"/>
@@ -614,29 +799,64 @@
         </svg>
       </a>
       <span class="brand-divider"></span>
-      <span class="brand-title">Hierarchical Contract Intelligence</span>
-      <span class="badge">Gemini 3.x + Append-Only BigQuery + pdf.js</span>
+      <span class="brand-title">Portfolio Contract Intelligence</span>
+      <span class="badge">300 Projects × 50 Landowners · 8-Table BigQuery</span>
     </div>
     <div class="toolbar">
+      <select id="upload-project-selector" title="Select Target ERP Project before uploading PDF"></select>
+      <button onclick="openNewProjectModal()" title="Register a new Oracle ERP project">+ New ERP Project</button>
       <input type="file" id="pdf-upload-input" accept=".pdf" />
       <button class="primary" id="upload-btn" onclick="uploadPdf()">Upload &amp; Parse PDF</button>
-      <select id="document-selector" onchange="loadSelectedDocument()"></select>
       <button onclick="downloadCsv('clauses.csv')">clauses.csv</button>
       <button onclick="downloadCsv('defined_terms.csv')">defined_terms.csv</button>
       <button onclick="downloadCsv('exhibits_catalog.csv')">exhibits_catalog.csv</button>
+      <button onclick="downloadCsv('special_conditions.csv')">special_conditions.csv</button>
     </div>
   </header>
 
+  <!-- CR-2 Portfolio Hierarchy Bar: Technology -> ERP Project -> QRM Landowner -> Contract PDF -->
+  <div class="portfolio-bar">
+    <div class="portfolio-filters">
+      <strong>Portfolio Hierarchy:</strong>
+      <select id="portfolio-tech-filter" onchange="onPortfolioFilterChange('tech')">
+        <option value="">All 5 Technologies</option>
+        <option value="ONSHORE_WIND">Onshore Wind</option>
+        <option value="SOLAR">Solar</option>
+        <option value="STORAGE">Storage (BESS)</option>
+        <option value="TRANSMISSION">Transmission</option>
+        <option value="GEOTHERMAL">Geothermal</option>
+      </select>
+      <span>→</span>
+      <select id="portfolio-project-filter" onchange="onPortfolioFilterChange('project')">
+        <option value="">All ERP Projects</option>
+      </select>
+      <span>→</span>
+      <select id="portfolio-landowner-filter" onchange="onPortfolioFilterChange('landowner')">
+        <option value="">All Landowners (QRM)</option>
+      </select>
+      <span>→</span>
+      <select id="document-selector" onchange="loadSelectedDocument()"></select>
+    </div>
+    <div class="portfolio-kpis" id="portfolio-kpi-bar">
+      <span class="kpi-pill">Projects: 5</span>
+      <span class="kpi-pill">Landowners: 0</span>
+      <span class="kpi-pill">Contracts: 0</span>
+    </div>
+  </div>
+
   <div class="workspace">
-    <!-- Left Pane: Contract Outline, Context Toggle, Terms, Exhibits & HITL Queue -->
+    <!-- Left Pane: Contract Outline, Context Toggle, Terms, Exhibits, HITL Queue, Field Crew DND & Portfolio Search -->
     <div class="left-pane">
       <div class="meta-bar" id="doc-meta-bar">
-        <span>Select or upload a legal contract PDF to inspect its hierarchy tree and HITL review flags.</span>
+        <span>Select a target ERP project and contract PDF to inspect its hierarchy tree, landowner obligations, and HITL flags.</span>
       </div>
       <div class="tabs">
         <div class="tab-buttons">
           <button class="tab-btn active" id="tab-all" onclick="setTab('all')">Clause Hierarchy</button>
           <button class="tab-btn" id="tab-flagged" onclick="setTab('flagged')">HITL Review Queue</button>
+          <button class="tab-btn" id="tab-constraints" onclick="setTab('constraints')">Site Constraints</button>
+          <button class="tab-btn" id="tab-dnd" data-tab-id="tabBtnDndChecklist" onclick="setTab('dnd')">Field Crew DND</button>
+          <button class="tab-btn" id="tab-portfolio" onclick="setTab('portfolio')">Portfolio Search</button>
           <button class="tab-btn" id="tab-terms" onclick="setTab('terms')">Defined Terms</button>
           <button class="tab-btn" id="tab-exhibits" onclick="setTab('exhibits')">Exhibits Catalog</button>
         </div>
@@ -648,7 +868,7 @@
       <div class="content-list" id="left-content-list"></div>
     </div>
 
-    <!-- Right Pane: Mozilla pdf.js Multi-Page Canvas Viewer -->
+    <!-- Right Pane: Synchronized PDF.js Multi-Page Canvas Viewer -->
     <div class="right-pane">
       <div class="pdf-toolbar">
         <div>
@@ -678,21 +898,147 @@
     let pdfDoc = null;
     let pdfScale = 1.15;
 
+    let allProjects = [];
+    let allLandowners = [];
+    let portfolioSearchState = {
+      q: "",
+      constraint_category: "",
+      hitl_status: "",
+      data: null
+    };
+    let dndChecklistState = {
+      construction_trade: "",
+      severity_level: "",
+      bundle: null,
+      initializedDocId: null,
+      checkedConditionIds: new Set()
+    };
+
+    async function loadPortfolioHierarchy(selectDocId = null) {
+      const tech = document.getElementById("portfolio-tech-filter").value;
+      const projFilterEl = document.getElementById("portfolio-project-filter");
+      const uploadProjEl = document.getElementById("upload-project-selector");
+      const lndFilterEl = document.getElementById("portfolio-landowner-filter");
+
+      const prevProj = projFilterEl.value;
+      const prevUploadProj = uploadProjEl.value || "prj_cedar_lantern_wind";
+      const prevLnd = lndFilterEl.value;
+
+      const projRes = await fetch(`/api/v1/projects${tech ? `?energy_technology=${encodeURIComponent(tech)}` : ""}`);
+      const projData = await projRes.json();
+      allProjects = projData.projects || [];
+
+      // Populate pre-upload project selector with all projects if needed
+      const allProjRes = tech ? await (await fetch("/api/v1/projects")).json() : projData;
+      uploadProjEl.innerHTML = "";
+      for (const p of (allProjRes.projects || [])) {
+        const opt = document.createElement("option");
+        opt.value = p.project_id;
+        opt.textContent = `Target Project: [${p.erp_project_code}] ${p.project_name} (${p.energy_technology})`;
+        uploadProjEl.appendChild(opt);
+      }
+      if ([...uploadProjEl.options].some(o => o.value === prevUploadProj)) {
+        uploadProjEl.value = prevUploadProj;
+      }
+
+      projFilterEl.innerHTML = `<option value="">All ERP Projects (${allProjects.length})</option>`;
+      for (const p of allProjects) {
+        const opt = document.createElement("option");
+        opt.value = p.project_id;
+        opt.textContent = `[${p.erp_project_code}] ${p.project_name} (${p.document_count} docs · ${p.special_conditions_count} constraints)`;
+        projFilterEl.appendChild(opt);
+      }
+      if ([...projFilterEl.options].some(o => o.value === prevProj)) {
+        projFilterEl.value = prevProj;
+      } else {
+        projFilterEl.value = "";
+      }
+
+      const activeProjId = projFilterEl.value;
+      if (activeProjId) {
+        uploadProjEl.value = activeProjId;
+      }
+
+      const lndUrl = activeProjId
+        ? `/api/v1/landowners?project_id=${encodeURIComponent(activeProjId)}`
+        : "/api/v1/landowners";
+      const lndRes = await fetch(lndUrl);
+      const lndData = await lndRes.json();
+      allLandowners = lndData.landowners || [];
+
+      lndFilterEl.innerHTML = `<option value="">All Landowners (${allLandowners.length})</option>`;
+      for (const l of allLandowners) {
+        const opt = document.createElement("option");
+        opt.value = l.landowner_id;
+        const multiTag = l.is_multi_parcel ? " [MULTI-PARCEL]" : "";
+        opt.textContent = `${l.landowner_name}${multiTag} (${l.contract_count} contract${l.contract_count === 1 ? "" : "s"} · ${l.special_conditions_count} constraints)`;
+        lndFilterEl.appendChild(opt);
+      }
+      if ([...lndFilterEl.options].some(o => o.value === prevLnd)) {
+        lndFilterEl.value = prevLnd;
+      } else {
+        lndFilterEl.value = "";
+      }
+
+      await fetchDocumentsList(selectDocId);
+      if (currentTab === "portfolio") {
+        await runPortfolioSearch();
+      }
+    }
+
+    async function onPortfolioFilterChange(level) {
+      if (level === "tech") {
+        document.getElementById("portfolio-project-filter").value = "";
+        document.getElementById("portfolio-landowner-filter").value = "";
+      } else if (level === "project") {
+        document.getElementById("portfolio-landowner-filter").value = "";
+        const selectedProj = document.getElementById("portfolio-project-filter").value;
+        if (selectedProj) {
+          document.getElementById("upload-project-selector").value = selectedProj;
+        }
+      }
+      await loadPortfolioHierarchy();
+    }
+
     async function fetchDocumentsList(selectDocId = null) {
-      const res = await fetch("/api/v1/documents");
+      const tech = document.getElementById("portfolio-tech-filter").value;
+      const projId = document.getElementById("portfolio-project-filter").value;
+      const lndId = document.getElementById("portfolio-landowner-filter").value;
+
+      const params = new URLSearchParams();
+      if (projId) params.set("project_id", projId);
+      if (lndId) params.set("landowner_id", lndId);
+      if (tech) params.set("energy_technology", tech);
+
+      const res = await fetch(`/api/v1/documents${params.toString() ? `?${params.toString()}` : ""}`);
       const data = await res.json();
+      const docs = data.documents || [];
+
+      const totalSc = docs.reduce((acc, d) => acc + (d.special_conditions_count || 0), 0);
+      document.getElementById("portfolio-kpi-bar").innerHTML = `
+        <span class="kpi-pill">Projects: ${allProjects.length}</span>
+        <span class="kpi-pill">Landowners: ${allLandowners.length}</span>
+        <span class="kpi-pill">Contracts: ${docs.length}</span>
+        <span class="kpi-pill">Site Constraints: ${totalSc}</span>
+      `;
+
       const selector = document.getElementById("document-selector");
       selector.innerHTML = "";
-      for (const doc of data.documents || []) {
+      for (const doc of docs) {
         const opt = document.createElement("option");
         opt.value = doc.document_id;
-        opt.textContent = `${doc.filename} (${doc.flagged_node_count} flags · ${doc.ingestion_status})`;
+        const scCount = doc.special_conditions_count || 0;
+        const grantor = doc.grantor_landowner_name ? `${doc.grantor_landowner_name} — ` : "";
+        opt.textContent = `${grantor}${doc.filename} (${doc.flagged_node_count} flags · ${scCount} constraints)`;
         selector.appendChild(opt);
       }
-      const targetId = selectDocId || (data.documents && data.documents[0] && data.documents[0].document_id);
-      if (targetId) {
+      const targetId = selectDocId || (docs[0] && docs[0].document_id);
+      if (targetId && docs.some(d => d.document_id === targetId)) {
         selector.value = targetId;
         await loadDocumentBundle(targetId);
+      } else if (docs.length > 0) {
+        selector.value = docs[0].document_id;
+        await loadDocumentBundle(docs[0].document_id);
       }
     }
 
@@ -709,19 +1055,26 @@
         alert("Choose a PDF file first.");
         return;
       }
+      const targetProjectId = document.getElementById("upload-project-selector").value || "prj_cedar_lantern_wind";
+      const targetLandownerId = document.getElementById("portfolio-landowner-filter").value || "";
       const btn = document.getElementById("upload-btn");
       btn.disabled = true;
-      btn.textContent = "Parsing with Gemini 3.x...";
+      btn.textContent = "Parsing & Binding to Project...";
       try {
         const formData = new FormData();
         formData.append("file", input.files[0]);
+        formData.append("project_id", targetProjectId);
+        if (targetLandownerId) {
+          formData.append("landowner_id", targetLandownerId);
+        }
         const res = await fetch("/api/v1/documents/upload", { method: "POST", body: formData });
         if (!res.ok) {
           const err = await res.json();
           throw new Error(err.detail || "Upload failed");
         }
         const bundle = await res.json();
-        await fetchDocumentsList(bundle.document.document_id);
+        document.getElementById("portfolio-project-filter").value = bundle.document.project_id || targetProjectId;
+        await loadPortfolioHierarchy(bundle.document.document_id);
       } catch (err) {
         alert("Upload error: " + err.message);
       } finally {
@@ -734,50 +1087,572 @@
       const res = await fetch(`/api/v1/documents/${docId}`);
       if (!res.ok) return;
       currentBundle = await res.json();
+      dndChecklistState.checkedConditionIds = new Set(
+        (currentBundle.special_conditions || []).map(sc => sc.condition_id)
+      );
       renderMetaBar();
-      renderLeftPane();
+      if (currentTab === "dnd") {
+        await loadDndChecklist();
+      } else {
+        renderLeftPane();
+      }
       await renderPdfDocument(currentBundle.pdf_url);
     }
 
     function renderMetaBar() {
       if (!currentBundle) return;
       const doc = currentBundle.document;
-      let partiesText = "";
-      try {
-        const parties = JSON.parse(doc.contracting_parties_json || "[]");
-        partiesText = parties.map(p => p.name || p.short_name || JSON.stringify(p)).join(" ↔ ");
-      } catch (_) {
-        partiesText = doc.contracting_parties_json || "";
+      const proj = allProjects.find(p => p.project_id === doc.project_id);
+      const projLabel = proj ? `[${proj.erp_project_code}] ${proj.project_name}` : (doc.project_id || "prj_cedar_lantern_wind");
+      const tech = doc.energy_technology || (proj && proj.energy_technology) || "ONSHORE_WIND";
+      const grantor = doc.grantor_landowner_name || doc.landowner_id || "Unassigned";
+      const grantee = doc.grantee_entity_name || "";
+
+      const scCount = doc.special_conditions_count ?? (currentBundle.special_conditions || []).length;
+      const tabConstraintsBtn = document.getElementById("tab-constraints");
+      if (tabConstraintsBtn) {
+        tabConstraintsBtn.textContent = `Site Constraints (${scCount})`;
+      }
+      const tabDndBtn = document.getElementById("tab-dnd");
+      if (tabDndBtn) {
+        tabDndBtn.textContent = `Field Crew DND (${scCount})`;
       }
       document.getElementById("doc-meta-bar").innerHTML = `
         <div>
-          <strong>${escapeHtml(doc.filename)}</strong> · <span>ID: <code>${escapeHtml(doc.document_id)}</code></span>
-          ${doc.effective_date ? ` · Effective: <strong>${escapeHtml(doc.effective_date)}</strong>` : ""}
-          ${partiesText ? ` · Parties: <span>${escapeHtml(partiesText)}</span>` : ""}
+          <span class="tech-badge tech-${escapeHtml(tech)}">${escapeHtml(tech)}</span>
+          <strong style="margin-left:6px;">${escapeHtml(projLabel)}</strong> ·
+          <span>Landowner: <strong>${escapeHtml(grantor)}</strong></span>
+          ${grantee ? ` ↔ <span>Grantee: <strong>${escapeHtml(grantee)}</strong></span>` : ""} ·
+          <span>File: <code>${escapeHtml(doc.filename)}</code> (<code>${escapeHtml(doc.document_id)}</code>)</span>
         </div>
         <div>
           <span>Pages: <strong>${doc.page_count}</strong></span> ·
           <span>Clauses: <strong>${currentBundle.clauses.length}</strong></span> ·
+          <span>Site Constraints: <strong>${scCount}</strong></span> ·
           <span>Open Flags: <strong>${doc.flagged_node_count}</strong></span> ·
           <span class="status-pill status-${doc.ingestion_status}">${doc.ingestion_status}</span>
         </div>
       `;
     }
 
-    function setTab(tabName) {
+    async function setTab(tabName) {
       currentTab = tabName;
-      for (const id of ["all", "flagged", "terms", "exhibits"]) {
-        document.getElementById(`tab-${id}`).classList.toggle("active", id === tabName);
+      for (const id of ["all", "flagged", "constraints", "dnd", "portfolio", "terms", "exhibits"]) {
+        const el = document.getElementById(`tab-${id}`);
+        if (el) el.classList.toggle("active", id === tabName);
+      }
+      if (tabName === "portfolio") {
+        await runPortfolioSearch();
+      } else if (tabName === "dnd") {
+        await loadDndChecklist();
+      } else {
+        renderLeftPane();
+      }
+    }
+
+    async function loadDndChecklist() {
+      if (!currentBundle) return;
+      const docId = currentBundle.document.document_id;
+      const tradeEl = document.getElementById("dnd-filter-trade");
+      const sevEl = document.getElementById("dnd-filter-severity");
+      if (tradeEl) dndChecklistState.construction_trade = tradeEl.value;
+      if (sevEl) dndChecklistState.severity_level = sevEl.value;
+
+      const params = new URLSearchParams();
+      if (dndChecklistState.construction_trade) {
+        params.set("construction_trade", dndChecklistState.construction_trade);
+      }
+      if (dndChecklistState.severity_level) {
+        params.set("severity_level", dndChecklistState.severity_level);
+      }
+      const res = await fetch(`/api/v1/documents/${docId}/dnd-checklist${params.toString() ? `?${params.toString()}` : ""}`);
+      if (!res.ok) return;
+      dndChecklistState.bundle = await res.json();
+      if (dndChecklistState.initializedDocId !== docId) {
+        dndChecklistState.initializedDocId = docId;
+        dndChecklistState.checkedConditionIds = new Set();
+        if (dndChecklistState.bundle.items) {
+          for (const item of dndChecklistState.bundle.items) {
+            dndChecklistState.checkedConditionIds.add(item.condition_id);
+          }
+        }
       }
       renderLeftPane();
+    }
+
+    function setDndTradeQuickFilter(tradeValue) {
+      dndChecklistState.construction_trade = tradeValue;
+      loadDndChecklist();
+    }
+
+    function toggleDndCheckItem(conditionId, checked) {
+      if (checked) {
+        dndChecklistState.checkedConditionIds.add(conditionId);
+      } else {
+        dndChecklistState.checkedConditionIds.delete(conditionId);
+      }
+    }
+
+    async function approveDndCondition(nodeId) {
+      if (!currentBundle) return;
+      const docId = currentBundle.document.document_id;
+      const clause = (currentBundle.clauses || []).find(c => c.node_id === nodeId);
+      const res = await fetch(`/api/v1/documents/${docId}/clauses/${encodeURIComponent(nodeId)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          hitl_status: "APPROVED_BY_HUMAN",
+          verbatim_text: clause ? clause.verbatim_text : undefined,
+          reconstructed_context_text: clause ? clause.reconstructed_context_text : undefined,
+          reviewed_by: "land_agent_field_clearance",
+          review_notes: "Cleared for field crew dispatch via DND Checklist Interlock"
+        })
+      });
+      if (!res.ok) {
+        alert("Failed to clear DND restriction for dispatch.");
+        return;
+      }
+      await loadDocumentBundle(docId);
+      await loadPortfolioHierarchy(docId);
+    }
+
+    async function submitDndSignoff() {
+      if (!currentBundle || !dndChecklistState.bundle) return;
+      const docId = currentBundle.document.document_id;
+      const companyEl = document.getElementById("dnd-signoff-company");
+      const foremanEl = document.getElementById("dnd-signoff-foreman");
+      const tradeEl = document.getElementById("dnd-signoff-trade");
+      const notesEl = document.getElementById("dnd-signoff-notes");
+
+      const subcontractor_company = (companyEl && companyEl.value.trim()) || "";
+      const foreman_name = (foremanEl && foremanEl.value.trim()) || "";
+      const construction_trade = (tradeEl && tradeEl.value) || "GENERAL_SITE_OPERATIONS";
+      const briefing_notes = (notesEl && notesEl.value.trim()) || "";
+
+      if (!subcontractor_company || !foreman_name) {
+        alert("Enter both Subcontractor Company and Foreman / Superintendent Name to record a tailgate briefing sign-off.");
+        return;
+      }
+
+      const acknowledged_condition_ids = Array.from(dndChecklistState.checkedConditionIds);
+      const res = await fetch(`/api/v1/documents/${docId}/dnd-checklist:signoff`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          construction_trade,
+          subcontractor_company,
+          foreman_name,
+          acknowledged_condition_ids,
+          briefing_notes: briefing_notes || null
+        })
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        alert("Sign-off failed: " + (err.detail || res.statusText));
+        return;
+      }
+      dndChecklistState.bundle = await res.json();
+      renderLeftPane();
+    }
+
+    async function runPortfolioSearch() {
+      const tech = document.getElementById("portfolio-tech-filter").value;
+      const projId = document.getElementById("portfolio-project-filter").value;
+      const lndId = document.getElementById("portfolio-landowner-filter").value;
+
+      const qInput = document.getElementById("portfolio-search-q");
+      const catInput = document.getElementById("portfolio-search-category");
+      const statusInput = document.getElementById("portfolio-search-status");
+      if (qInput) portfolioSearchState.q = qInput.value;
+      if (catInput) portfolioSearchState.constraint_category = catInput.value;
+      if (statusInput) portfolioSearchState.hitl_status = statusInput.value;
+
+      const params = new URLSearchParams();
+      if (projId) params.set("project_id", projId);
+      if (lndId) params.set("landowner_id", lndId);
+      if (tech) params.set("energy_technology", tech);
+      if (portfolioSearchState.constraint_category) {
+        params.set("constraint_category", portfolioSearchState.constraint_category);
+      }
+      if (portfolioSearchState.hitl_status) {
+        params.set("hitl_status", portfolioSearchState.hitl_status);
+      }
+      if (portfolioSearchState.q) {
+        params.set("q", portfolioSearchState.q);
+      }
+
+      const res = await fetch(`/api/v1/portfolio/search?${params.toString()}`);
+      portfolioSearchState.data = await res.json();
+      renderLeftPane();
+    }
+
+    async function openPortfolioResult(documentId, nodeId, pageNumber) {
+      if (!currentBundle || currentBundle.document.document_id !== documentId) {
+        const selector = document.getElementById("document-selector");
+        if ([...selector.options].some(o => o.value === documentId)) {
+          selector.value = documentId;
+        }
+        await loadDocumentBundle(documentId);
+      }
+      selectedNodeId = nodeId;
+      await setTab("all");
+      jumpToPage(pageNumber);
+    }
+
+    function jumpToClauseInHierarchy(nodeId, pageNumber) {
+      selectedNodeId = nodeId;
+      setTab("all");
+      jumpToPage(pageNumber);
     }
 
     function renderLeftPane() {
       const container = document.getElementById("left-content-list");
       container.innerHTML = "";
+
+      if (currentTab === "dnd") {
+        const dnd = dndChecklistState.bundle;
+        if (!dnd) {
+          container.innerHTML = `<div class="clause-card"><span>Loading Subcontractor Field Crew Do-Not-Disturb Checklist...</span></div>`;
+          return;
+        }
+
+        const banner = document.createElement("div");
+        banner.className = `dnd-interlock-banner dnd-interlock-${escapeHtml(dnd.dispatch_readiness)}`;
+        const readinessHeadline =
+          dnd.dispatch_readiness === "HOLD_PENDING_HITL"
+            ? `⚠️ DISPATCH HOLD — PENDING LAND AGENT CLEARANCE (${dnd.hold_count} UNVERIFIED RESTRICTION${dnd.hold_count === 1 ? "" : "S"})`
+            : dnd.dispatch_readiness === "READY_FOR_DISPATCH"
+            ? `✅ READY FOR FIELD DISPATCH — ALL ${dnd.total_items} DO-NOT-DISTURB RESTRICTIONS CLEARED`
+            : `ℹ️ NO DO-NOT-DISTURB CONSTRAINTS IDENTIFIED IN THIS CONTRACT`;
+
+        const tradePillsHtml = Object.entries(dnd.trade_breakdown || {}).map(([tr, cnt]) => `
+          <button onclick="setDndTradeQuickFilter('${escapeHtml(tr)}')" style="padding:3px 9px; font-size:11px; border-radius:999px; background:${dndChecklistState.construction_trade === tr ? 'var(--primary-green)' : '#ffffff'}; color:${dndChecklistState.construction_trade === tr ? '#ffffff' : 'var(--primary-slate)'}; border:1px solid var(--neutrals-sage-green);">
+            ${escapeHtml(tr)}: ${cnt}
+          </button>
+        `).join("");
+
+        banner.innerHTML = `
+          <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
+            <strong style="font-size:14px; letter-spacing:0.02em;">${readinessHeadline}</strong>
+            <div class="chip-row" style="margin-top:0;">
+              <span class="chip">Total DND Items: <strong>${dnd.total_items}</strong></span>
+              <span class="chip dnd-severity-RED_ZONE_NO_GO">Red Zone: <strong>${dnd.red_zone_count || 0}</strong></span>
+              <span class="chip dnd-severity-SEASONAL_BLACKOUT">Blackout: <strong>${dnd.seasonal_blackout_count || 0}</strong></span>
+              <span class="chip dnd-clearance-CLEARED_FOR_DISPATCH">Cleared: <strong>${dnd.cleared_count}</strong></span>
+              <span class="chip ${dnd.hold_count > 0 ? 'dnd-clearance-HOLD_VERIFY_WITH_LAND_AGENT' : ''}">On Hold: <strong>${dnd.hold_count}</strong></span>
+            </div>
+          </div>
+          <div style="font-size:12.5px;">
+            <span class="tech-badge tech-${escapeHtml(dnd.energy_technology)}">${escapeHtml(dnd.energy_technology)}</span>
+            <strong style="margin-left:6px;">[${escapeHtml(dnd.erp_project_code)}] ${escapeHtml(dnd.project_name)}</strong> ·
+            <span>Landowner: <strong>${escapeHtml(dnd.landowner_name)}</strong> (${escapeHtml(dnd.landowner_id)})</span> ·
+            <span>Parcels: <code>${escapeHtml(dnd.parcel_summary || "Single Parcel / Standard Agreement")}</code></span>
+          </div>
+          ${dnd.dispatch_readiness === "HOLD_PENDING_HITL" ? `<div style="font-size:12px;">Unverified clauses (<code>FLAGGED_FOR_REVIEW</code>) carry a <strong>HOLD — VERIFY WITH LAND AGENT</strong> interlock. Clear each hold below or verify directly with the Land Agent before mobilizing heavy equipment.</div>` : ""}
+          ${tradePillsHtml ? `<div style="display:flex; gap:6px; flex-wrap:wrap; align-items:center;"><strong style="font-size:11.5px;">Trade Breakdown:</strong> <button onclick="setDndTradeQuickFilter('')" style="padding:3px 9px; font-size:11px; border-radius:999px; background:${!dndChecklistState.construction_trade ? 'var(--primary-green)' : '#ffffff'}; color:${!dndChecklistState.construction_trade ? '#ffffff' : 'var(--primary-slate)'}; border:1px solid var(--neutrals-sage-green);">ALL (${dnd.total_items})</button>${tradePillsHtml}</div>` : ""}
+        `;
+        container.appendChild(banner);
+
+        const filterBar = document.createElement("div");
+        filterBar.className = "portfolio-search-bar";
+        const trades = [
+          "ACCESS_FENCING_GATES",
+          "CLEARING_VEGETATION",
+          "CIVIL_GRADING_SOIL",
+          "BLASTING_TRENCHING_FOUNDATION",
+          "CRANE_TRANSPORT_ERECTION",
+          "GENERAL_SITE_OPERATIONS"
+        ];
+        const severities = [
+          "RED_ZONE_NO_GO",
+          "SEASONAL_BLACKOUT",
+          "MANDATORY_PROTOCOL"
+        ];
+        filterBar.innerHTML = `
+          <strong style="font-size:12px;">Filter Crew Scope:</strong>
+          <select id="dnd-filter-trade" onchange="loadDndChecklist()">
+            <option value="">All Construction Trades</option>
+            ${trades.map(t => `<option value="${t}" ${dndChecklistState.construction_trade === t ? "selected" : ""}>${t}</option>`).join("")}
+          </select>
+          <select id="dnd-filter-severity" onchange="loadDndChecklist()">
+            <option value="">All Severity Levels</option>
+            ${severities.map(s => `<option value="${s}" ${dndChecklistState.severity_level === s ? "selected" : ""}>${s}</option>`).join("")}
+          </select>
+          <span style="margin-left:auto; font-size:12px; color:var(--neutrals-gray);">Showing <strong>${(dnd.items || []).length}</strong> of <strong>${dnd.total_items}</strong> DND field directives</span>
+        `;
+        container.appendChild(filterBar);
+
+        const items = dnd.items || [];
+        if (items.length === 0) {
+          const empty = document.createElement("div");
+          empty.className = "clause-card";
+          empty.innerHTML = `<span>No Do-Not-Disturb directives match the selected trade/severity filter for this contract.</span>`;
+          container.appendChild(empty);
+        } else {
+          for (const item of items) {
+            const card = document.createElement("div");
+            const isHold = item.dispatch_clearance === "HOLD_VERIFY_WITH_LAND_AGENT";
+            card.className = `clause-card ${isHold ? "flagged" : "approved"}`;
+            const isChecked = dndChecklistState.checkedConditionIds.has(item.condition_id);
+            card.onclick = () => selectClause(item.node_id, item.page_number);
+            card.innerHTML = `
+              <div class="card-header">
+                <div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
+                  <input type="checkbox" ${isChecked ? "checked" : ""} onclick="event.stopPropagation(); toggleDndCheckItem('${escapeHtml(item.condition_id)}', this.checked)" title="Acknowledge in Pre-Job Tailgate Briefing" style="width:16px; height:16px; accent-color:var(--primary-green); cursor:pointer;" />
+                  <span class="dnd-trade-badge">${escapeHtml(item.construction_trade)}</span>
+                  <span class="chip dnd-severity-${escapeHtml(item.severity_level)}">${escapeHtml(item.severity_level)}</span>
+                  <span class="chip dnd-clearance-${escapeHtml(item.dispatch_clearance)}">
+                    ${isHold ? "🛑 HOLD — VERIFY WITH LAND AGENT" : "✅ CLEARED FOR DISPATCH"}
+                  </span>
+                </div>
+                <div>
+                  <span class="page-badge">p. ${item.page_number}</span>
+                  <span class="status-pill status-${item.hitl_status}">${item.hitl_status}</span>
+                </div>
+              </div>
+              <div class="dnd-directive-box">${escapeHtml(item.field_directive_title)} — ${escapeHtml(item.actionable_obligation_summary)}</div>
+              <div class="chip-row">
+                ${item.target_asset_or_area && item.target_asset_or_area !== "NONE" ? `<span class="chip constraint-chip">📍 Asset/Zone: <strong>${escapeHtml(item.target_asset_or_area)}</strong></span>` : ""}
+                ${item.quantitative_metric && item.quantitative_metric !== "NONE" ? `<span class="chip">📏 Setback/Limit: <strong>${escapeHtml(item.quantitative_metric)}</strong></span>` : ""}
+                ${item.temporal_restriction && item.temporal_restriction !== "NONE" ? `<span class="chip flag-chip">🗓️ Blackout/Timing: <strong>${escapeHtml(item.temporal_restriction)}</strong></span>` : ""}
+                ${item.penalty_or_consequence && item.penalty_or_consequence !== "NONE" ? `<span class="chip penalty-chip">💰 Penalty/Liability: <strong>${escapeHtml(item.penalty_or_consequence)}</strong></span>` : ""}
+              </div>
+              <div class="clause-text" style="font-size:12px; color:var(--neutrals-gray); border-left:2px solid var(--neutrals-sage-green); padding-left:10px;">
+                <strong>Contract Citation (${escapeHtml(item.canonical_path)} · Clause <code>${escapeHtml(item.node_id)}</code>):</strong> "${escapeHtml(item.verbatim_excerpt)}"
+              </div>
+              <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; margin-top:4px;">
+                <span style="font-size:11.5px; color:var(--neutrals-gray);">
+                  Condition ID: <code>${escapeHtml(item.condition_id)}</code> · Category: <code>${escapeHtml(item.constraint_category)}</code>
+                  ${item.reviewed_by ? ` · Cleared by <strong>${escapeHtml(item.reviewed_by)}</strong>` : ""}
+                </span>
+                <div style="display:flex; gap:6px; margin-left:auto;">
+                  ${isHold ? `<button class="success" onclick="event.stopPropagation(); approveDndCondition('${escapeHtml(item.node_id)}')" style="padding:4px 10px; font-size:11.5px;">Approve &amp; Clear for Field Dispatch</button>` : ""}
+                  <button onclick="event.stopPropagation(); jumpToClauseInHierarchy('${escapeHtml(item.node_id)}', ${item.page_number})" style="padding:4px 10px; font-size:11.5px;">Inspect Source Clause →</button>
+                </div>
+              </div>
+            `;
+            container.appendChild(card);
+          }
+        }
+
+        const signoffPanel = document.createElement("div");
+        signoffPanel.className = "dnd-signoff-card";
+        const signoffs = dnd.signoffs || [];
+        const signoffHistoryHtml = signoffs.length === 0
+          ? `<div style="font-size:12px; color:var(--neutrals-gray);">No pre-job tailgate briefing sign-offs recorded yet for this contract.</div>`
+          : signoffs.map(s => `
+              <div style="padding:8px 10px; background:var(--neutrals-mint-wash); border-radius:var(--radius-sm); font-size:12px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:6px;">
+                <div>
+                  <strong>${escapeHtml(s.subcontractor_company)}</strong> — Foreman: <strong>${escapeHtml(s.foreman_name)}</strong>
+                  <span class="dnd-trade-badge" style="margin-left:6px;">${escapeHtml(s.construction_trade)}</span>
+                  <span class="chip" style="margin-left:4px;">Acknowledged: ${s.acknowledged_count} item${s.acknowledged_count === 1 ? "" : "s"}</span>
+                  ${s.dispatch_readiness_at_signoff === "HOLD_PENDING_HITL" ? `<span class="chip flag-chip">HOLD_PENDING_HITL at Sign-Off</span>` : `<span class="chip dnd-clearance-CLEARED_FOR_DISPATCH">READY_FOR_DISPATCH</span>`}
+                  ${s.briefing_notes ? `<div style="color:var(--neutrals-gray); margin-top:3px;">Notes: "${escapeHtml(s.briefing_notes)}"</div>` : ""}
+                </div>
+                <div style="font-family:var(--font-mono); font-size:11px; color:var(--neutrals-gray);">
+                  ${escapeHtml(s.signed_at)} (<code>${escapeHtml(s.signoff_id)}</code>)
+                </div>
+              </div>
+            `).join("");
+
+        signoffPanel.innerHTML = `
+          <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
+            <strong style="font-size:13.5px; color:var(--brand-dark-green);">📋 Pre-Job Tailgate Briefing Sign-Off &amp; Audit Log (<code>dnd_checklist_signoffs</code>)</strong>
+            <span class="chip">Recorded Sign-Offs: ${signoffs.length}</span>
+          </div>
+          <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+            <input type="text" id="dnd-signoff-company" placeholder="Subcontractor Company (e.g. Apex Civil & Grading LLC)" style="flex:1; min-width:200px;" />
+            <input type="text" id="dnd-signoff-foreman" placeholder="Foreman / Superintendent Name" style="flex:1; min-width:180px;" />
+            <select id="dnd-signoff-trade">
+              <option value="GENERAL_SITE_OPERATIONS">GENERAL_SITE_OPERATIONS (All Trades)</option>
+              ${trades.filter(t => t !== "GENERAL_SITE_OPERATIONS").map(t => `<option value="${t}" ${dndChecklistState.construction_trade === t ? "selected" : ""}>${t}</option>`).join("")}
+            </select>
+          </div>
+          <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+            <input type="text" id="dnd-signoff-notes" placeholder="Pre-job tailgate briefing notes (e.g. Staked 250ft barn setback and locked north pasture gate)..." style="flex:1; min-width:240px;" />
+            <button class="primary" onclick="submitDndSignoff()">Record Pre-Job Tailgate Sign-Off</button>
+          </div>
+          <div style="display:flex; flex-direction:column; gap:6px; margin-top:4px;">
+            <strong style="font-size:12px;">Audit Trail:</strong>
+            ${signoffHistoryHtml}
+          </div>
+        `;
+        container.appendChild(signoffPanel);
+        return;
+      }
+
+      if (currentTab === "portfolio") {
+        const searchBar = document.createElement("div");
+        searchBar.className = "portfolio-search-bar";
+        const categories = [
+          "SETBACK_OR_BUFFER",
+          "CONSTRUCTION_OR_BLACKOUT_WINDOW",
+          "CROP_OR_TIMBER_COMPENSATION",
+          "NOISE_OR_SHADOW_FLICKER",
+          "DRAINAGE_OR_SOIL_RESTORATION",
+          "GATES_FENCING_OR_LIVESTOCK",
+          "ACCESS_ROAD_OR_PARCEL_RESTRICTION",
+          "BLASTING_OR_EXCAVATION",
+          "DECOMMISSIONING_OR_BOND",
+          "OTHER_SPECIAL_CONDITION",
+          "TREE_VEGETATION_PROTECTION",
+          "STRUCTURE_BARN_WELL_SETBACK",
+          "ACCESS_ROAD_GATE_PROTOCOL",
+          "LIVESTOCK_AGRICULTURE",
+          "TIMING_NOISE_HUNTING_BLACKOUT",
+          "FINANCIAL_PENALTY_LIQUIDATED_DAMAGES",
+          "OTHER_CUSTOM_RIDER"
+        ];
+        searchBar.innerHTML = `
+          <input type="text" id="portfolio-search-q" value="${escapeHtml(portfolioSearchState.q)}" placeholder="Search across projects, landowners, metrics (e.g. 250 feet, blasting, harvest)..." style="flex:1; min-width:220px;" onkeydown="if(event.key==='Enter') runPortfolioSearch()" />
+          <select id="portfolio-search-category" onchange="runPortfolioSearch()">
+            <option value="">All Constraint Categories</option>
+            ${categories.map(c => `<option value="${c}" ${portfolioSearchState.constraint_category === c ? "selected" : ""}>${c}</option>`).join("")}
+          </select>
+          <select id="portfolio-search-status" onchange="runPortfolioSearch()">
+            <option value="">All HITL Statuses</option>
+            <option value="VERIFIED_AUTO" ${portfolioSearchState.hitl_status === "VERIFIED_AUTO" ? "selected" : ""}>VERIFIED_AUTO</option>
+            <option value="FLAGGED_FOR_REVIEW" ${portfolioSearchState.hitl_status === "FLAGGED_FOR_REVIEW" ? "selected" : ""}>FLAGGED_FOR_REVIEW</option>
+            <option value="APPROVED_BY_HUMAN" ${portfolioSearchState.hitl_status === "APPROVED_BY_HUMAN" ? "selected" : ""}>APPROVED_BY_HUMAN</option>
+          </select>
+          <button class="primary" onclick="runPortfolioSearch()">Search Portfolio</button>
+        `;
+        container.appendChild(searchBar);
+
+        const data = portfolioSearchState.data;
+        if (!data) return;
+
+        // Render Project Roll-Up Summary Card
+        const rollupCard = document.createElement("div");
+        rollupCard.className = "clause-card";
+        const projectsHtml = (data.projects || []).map(p => `
+          <div style="display:flex; justify-content:space-between; align-items:center; padding:6px 0; border-bottom:1px solid var(--neutrals-light-green); font-size:12.5px; flex-wrap:wrap; gap:6px;">
+            <div>
+              <span class="tech-badge tech-${escapeHtml(p.energy_technology)}">${escapeHtml(p.energy_technology)}</span>
+              <strong style="margin-left:6px;">[${escapeHtml(p.erp_project_code)}] ${escapeHtml(p.project_name)}</strong>
+              <span style="color:var(--neutrals-gray); margin-left:6px;">(${escapeHtml(p.county || "")}, ${escapeHtml(p.state_province || "")} · ${p.target_capacity_mw || 0} MW)</span>
+            </div>
+            <div class="chip-row" style="margin-top:0;">
+              <span class="chip">Landowners: ${p.landowner_count}</span>
+              <span class="chip">Contracts: ${p.document_count}</span>
+              <span class="chip constraint-chip">⚡ ${p.special_conditions_count} Constraints</span>
+              <span class="chip ${p.flagged_node_count > 0 ? 'flag-chip' : ''}">Flags: ${p.flagged_node_count}</span>
+            </div>
+          </div>
+        `).join("");
+
+        const landownersHtml = (data.landowners || []).map(l => `
+          <span class="chip ${l.is_multi_parcel ? 'constraint-chip' : ''}" title="${escapeHtml(l.parcel_summary || '')}">
+            ${escapeHtml(l.landowner_name)} (${escapeHtml(l.qrm_party_id || 'QRM')}) · ${l.contract_count} doc${l.contract_count === 1 ? '' : 's'}${l.is_multi_parcel ? ' · MULTI-PARCEL' : ''}
+          </span>
+        `).join("");
+
+        rollupCard.innerHTML = `
+          <div class="card-header">
+            <div>
+              <span class="path-pill">PORTFOLIO ROLL-UP</span>
+              <strong style="margin-left:6px;">${data.total_projects} Projects · ${data.total_landowners} Landowners · ${data.total_documents} Contracts · ${data.total_matching_conditions} Matching Site Constraints</strong>
+            </div>
+          </div>
+          <div>${projectsHtml}</div>
+          ${landownersHtml ? `<div class="chip-row" style="margin-top:10px;"><strong>Active QRM Landowners:</strong> ${landownersHtml}</div>` : ""}
+        `;
+        container.appendChild(rollupCard);
+
+        const results = data.results || [];
+        if (results.length === 0) {
+          const empty = document.createElement("div");
+          empty.className = "clause-card";
+          empty.innerHTML = `<span>No matching special conditions found across the selected portfolio filters.</span>`;
+          container.appendChild(empty);
+          return;
+        }
+
+        for (const sc of results) {
+          const card = document.createElement("div");
+          const statusClass =
+            sc.hitl_status === "FLAGGED_FOR_REVIEW" ? "flagged" :
+            sc.hitl_status === "PLACEHOLDER_FOR_REVIEW" ? "placeholder" :
+            sc.hitl_status === "APPROVED_BY_HUMAN" ? "approved" : "";
+          card.className = `clause-card ${statusClass}`;
+          card.onclick = () => openPortfolioResult(sc.document_id, sc.node_id, sc.page_number);
+          card.innerHTML = `
+            <div class="card-header">
+              <div>
+                <span class="tech-badge tech-${escapeHtml(sc.energy_technology)}">${escapeHtml(sc.energy_technology)}</span>
+                <span class="path-pill" style="margin-left:4px;">${escapeHtml(sc.project_name)}</span>
+                <strong style="margin-left:6px;">${escapeHtml(sc.landowner_name)}</strong>
+                ${sc.is_multi_parcel ? `<span class="chip constraint-chip" style="margin-left:4px;">MULTI-PARCEL</span>` : ""}
+                <span class="chip constraint-chip" style="margin-left:6px;">⚡ ${escapeHtml(sc.constraint_category)}</span>
+              </div>
+              <div>
+                <span class="page-badge">${escapeHtml(sc.filename)} · p. ${sc.page_number}</span>
+                <span class="status-pill status-${sc.hitl_status}">${sc.hitl_status}</span>
+              </div>
+            </div>
+            <div class="clause-text"><strong>${escapeHtml(sc.actionable_obligation_summary)}</strong></div>
+            <div class="clause-text" style="font-size:12.5px; color:var(--neutrals-gray); border-left:2px solid var(--neutrals-sage-green); padding-left:10px;">"${escapeHtml(sc.verbatim_excerpt)}"</div>
+            <div class="chip-row">
+              ${sc.target_asset_or_area && sc.target_asset_or_area !== "NONE" ? `<span class="chip constraint-chip">Asset: ${escapeHtml(sc.target_asset_or_area)}</span>` : ""}
+              ${sc.quantitative_metric && sc.quantitative_metric !== "NONE" ? `<span class="chip">Metric: ${escapeHtml(sc.quantitative_metric)}</span>` : ""}
+              ${sc.temporal_restriction && sc.temporal_restriction !== "NONE" ? `<span class="chip flag-chip">Window: ${escapeHtml(sc.temporal_restriction)}</span>` : ""}
+              ${sc.penalty_or_consequence && sc.penalty_or_consequence !== "NONE" ? `<span class="chip penalty-chip">Penalty: ${escapeHtml(sc.penalty_or_consequence)}</span>` : ""}
+              <span class="chip">Clause: ${escapeHtml(sc.node_id)}</span>
+              <button onclick="event.stopPropagation(); openPortfolioResult('${sc.document_id}', '${sc.node_id}', ${sc.page_number})" style="padding:2px 8px; font-size:11px; margin-left:auto;">Open Contract &amp; Clause →</button>
+            </div>
+          `;
+          container.appendChild(card);
+        }
+        return;
+      }
+
       if (!currentBundle) return;
 
       const showReconstructed = document.getElementById("context-toggle").checked;
+
+      if (currentTab === "constraints") {
+        const conditions = currentBundle.special_conditions || [];
+        if (conditions.length === 0) {
+          container.innerHTML = `<div class="clause-card"><span>No physical or operational landowner site constraints detected in this contract.</span></div>`;
+          return;
+        }
+        for (const sc of conditions) {
+          const card = document.createElement("div");
+          const statusClass =
+            sc.hitl_status === "FLAGGED_FOR_REVIEW" ? "flagged" :
+            sc.hitl_status === "PLACEHOLDER_FOR_REVIEW" ? "placeholder" :
+            sc.hitl_status === "APPROVED_BY_HUMAN" ? "approved" : "";
+          const isSelected = selectedNodeId === sc.node_id ? "selected" : "";
+          card.className = `clause-card ${statusClass} ${isSelected}`;
+          card.onclick = () => selectClause(sc.node_id, sc.page_number);
+          card.innerHTML = `
+            <div class="card-header">
+              <div>
+                <span class="path-pill">${escapeHtml(sc.condition_id)}</span>
+                <span class="chip constraint-chip" style="margin-left:6px;">⚡ ${escapeHtml(sc.constraint_category)}</span>
+                <span class="clause-title-text">Clause <code>${escapeHtml(sc.node_id)}</code> (${escapeHtml(sc.canonical_path)})</span>
+              </div>
+              <div>
+                <span class="page-badge">p. ${sc.page_number}</span>
+                <span class="status-pill status-${sc.hitl_status}">${sc.hitl_status}</span>
+              </div>
+            </div>
+            <div class="clause-text"><strong>${escapeHtml(sc.actionable_obligation_summary)}</strong></div>
+            <div class="clause-text" style="font-size:12.5px; color:var(--neutrals-gray); border-left:2px solid var(--neutrals-sage-green); padding-left:10px;">"${escapeHtml(sc.verbatim_excerpt)}"</div>
+            <div class="chip-row">
+              ${sc.target_asset_or_area && sc.target_asset_or_area !== "NONE" ? `<span class="chip constraint-chip">Asset: ${escapeHtml(sc.target_asset_or_area)}</span>` : ""}
+              ${sc.quantitative_metric && sc.quantitative_metric !== "NONE" ? `<span class="chip">Metric: ${escapeHtml(sc.quantitative_metric)}</span>` : ""}
+              ${sc.temporal_restriction && sc.temporal_restriction !== "NONE" ? `<span class="chip flag-chip">Window: ${escapeHtml(sc.temporal_restriction)}</span>` : ""}
+              ${sc.penalty_or_consequence && sc.penalty_or_consequence !== "NONE" ? `<span class="chip penalty-chip">Penalty: ${escapeHtml(sc.penalty_or_consequence)}</span>` : ""}
+              <span class="chip">Confidence: ${Math.round((sc.extraction_confidence || 0.95) * 100)}%</span>
+              ${sc.reviewed_by ? `<span class="chip">Reviewed by ${escapeHtml(sc.reviewed_by)}</span>` : ""}
+              <button onclick="event.stopPropagation(); jumpToClauseInHierarchy('${sc.node_id}', ${sc.page_number})" style="padding:2px 8px; font-size:11px; margin-left:auto;">Review Clause →</button>
+            </div>
+          `;
+          container.appendChild(card);
+        }
+        return;
+      }
 
       if (currentTab === "terms") {
         for (const t of currentBundle.defined_terms) {
@@ -850,6 +1725,7 @@
               <strong style="margin-left:6px;">${escapeHtml(c.clause_label)}</strong>
               ${c.clause_title ? `<span class="clause-title-text">${escapeHtml(c.clause_title)}</span>` : ""}
               ${c.is_inline_clause ? `<span class="chip" style="margin-left:6px;">inline</span>` : ""}
+              ${c.has_special_condition ? `<span class="chip constraint-chip" style="margin-left:6px;">⚡ ${c.special_condition_count} Site Constraint${c.special_condition_count > 1 ? "s" : ""}</span>` : ""}
             </div>
             <div>
               <span class="page-badge">p. ${c.page_start}${c.page_end !== c.page_start ? `–${c.page_end}` : ""}</span>
@@ -908,7 +1784,7 @@
         return;
       }
       await loadDocumentBundle(docId);
-      await fetchDocumentsList(docId);
+      await loadPortfolioHierarchy(docId);
     }
 
     async function renderPdfDocument(pdfUrl) {
@@ -985,7 +1861,72 @@
         .replace(/"/g, "&quot;");
     }
 
-    fetchDocumentsList();
+    function openNewProjectModal() {
+      const modal = document.getElementById("new-project-modal");
+      if (modal) modal.style.display = "flex";
+    }
+
+    function closeNewProjectModal() {
+      const modal = document.getElementById("new-project-modal");
+      if (modal) modal.style.display = "none";
+    }
+
+    async function submitNewProject() {
+      const name = document.getElementById("new-proj-name").value.trim();
+      const code = document.getElementById("new-proj-code").value.trim() || "ERP-CUSTOM-001";
+      const tech = document.getElementById("new-proj-tech").value;
+      const state = document.getElementById("new-proj-state").value.trim();
+      const county = document.getElementById("new-proj-county").value.trim();
+      if (!name) return;
+      const res = await fetch("/api/v1/projects", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          project_name: name,
+          erp_project_code: code,
+          energy_technology: tech,
+          state_province: state || null,
+          county: county || null
+        })
+      });
+      if (res.ok) {
+        const created = await res.json();
+        closeNewProjectModal();
+        await loadPortfolioHierarchy();
+        const uploadSel = document.getElementById("upload-project-selector");
+        if (uploadSel && created.project_id) {
+          uploadSel.value = created.project_id;
+        }
+      }
+    }
+
+    loadPortfolioHierarchy();
   </script>
+
+  <!-- New ERP Project Registration Modal -->
+  <div id="new-project-modal" style="display:none; position:fixed; inset:0; background:rgba(37,39,41,0.55); z-index:9999; align-items:center; justify-content:center;">
+    <div style="background:#ffffff; border-radius:4px; padding:20px; width:420px; max-width:92vw; box-shadow:0 8px 28px rgba(0,0,0,0.22); border-top:4px solid var(--primary-green);">
+      <h3 style="margin:0 0 12px 0; font-size:16px; color:var(--primary-slate);">Register New Oracle ERP Project</h3>
+      <div style="display:flex; flex-direction:column; gap:10px; font-size:13px;">
+        <input type="text" id="new-proj-name" placeholder="Project Name (e.g. Prairie Wind Expansion II)" style="padding:7px 10px; border:1px solid #cbd5e1; border-radius:2px;" />
+        <input type="text" id="new-proj-code" placeholder="Oracle ERP Project Code (e.g. ERP-WND-909)" style="padding:7px 10px; border:1px solid #cbd5e1; border-radius:2px;" />
+        <select id="new-proj-tech" style="padding:7px 10px; border:1px solid #cbd5e1; border-radius:2px;">
+          <option value="ONSHORE_WIND">ONSHORE_WIND</option>
+          <option value="SOLAR">SOLAR</option>
+          <option value="STORAGE">STORAGE</option>
+          <option value="TRANSMISSION">TRANSMISSION</option>
+          <option value="GEOTHERMAL">GEOTHERMAL</option>
+        </select>
+        <div style="display:flex; gap:8px;">
+          <input type="text" id="new-proj-state" placeholder="State (e.g. IA)" style="flex:1; padding:7px 10px; border:1px solid #cbd5e1; border-radius:2px;" />
+          <input type="text" id="new-proj-county" placeholder="County (e.g. Story)" style="flex:2; padding:7px 10px; border:1px solid #cbd5e1; border-radius:2px;" />
+        </div>
+        <div style="display:flex; justify-content:flex-end; gap:8px; margin-top:6px;">
+          <button onclick="closeNewProjectModal()" style="padding:6px 12px; border:1px solid #cbd5e1; background:#f8fafc; cursor:pointer;">Cancel</button>
+          <button class="primary" onclick="submitNewProject()" style="padding:6px 14px; background:var(--primary-green); color:#fff; border:none; cursor:pointer; font-weight:600;">Create ERP Project</button>
+        </div>
+      </div>
+    </div>
+  </div>
 </body>
 </html>

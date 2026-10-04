@@ -14,6 +14,7 @@ from google.genai import types
 from contract_parser.config import PipelineConfig
 from contract_parser.schemas import (
     ClauseRow,
+    ConstraintCategory,
     DefinedTermRow,
     DefinitionType,
     DocumentZone,
@@ -23,6 +24,7 @@ from contract_parser.schemas import (
     GeminiContractExtraction,
     HITLStatus,
     NumberingScheme,
+    SpecialConditionRow,
     utc_now_iso,
 )
 
@@ -66,15 +68,34 @@ Follow these universal rules:
      * `Exhibit B` (`EXTERNAL_INSTRUMENT_LIST`, Page 9) and `Exhibit C` (`EXTERNAL_INSTRUMENT_LIST`, Page 10): list the recorded easement instruments (Book/Page numbers) in `structured_entities_json` and set `has_unresolved_external_dep=true` because Section 2 (Term) depends on easement expiration dates that are not stated in Exhibits B or C.
      * `Exhibit D` (`VISUAL_DRAWING_OR_MAP_STUB`, Pages 11-12): create clause stub `EXHIBIT_D.STUB` with `page_start=11, page_end=12`, `hitl_status="PLACEHOLDER_FOR_REVIEW"`, and `hitl_flag_reasons="DEFERRED_MODALITY_PLACEHOLDER"`.
 
-5. DEFINED TERMS & SIX UNIVERSAL HITL FLAGS:
+5. DEFINED TERMS & UNIVERSAL HITL FLAGS:
    - Extract all Defined Terms into `defined_terms` (including `Agreement`, `Cedar Lantern`, `Blue Meridian`, `Property`, `Party`, `Parties`, `Cedar Lantern Easements`, `Cedar Lantern Project`, `Blue Meridian Easements`, `Blue Meridian Project`, `FPUC`, `CCN`, `Blue Meridian Facilities`, `Operations`, `Equipment`, `Liabilities`).
-   - Populate `hitl_flag_reasons` (pipe-delimited sorted codes, or `"NONE"`) using the 6 universal codes:
+   - Populate `hitl_flag_reasons` (pipe-delimited sorted codes, or `"NONE"`) using the universal codes:
      * `AMBIGUOUS_HIERARCHY_MARKER`: Skipped numbering tier (`INTEGER` -> `ROMAN_LOWER` without `ALPHA_LOWER`, e.g. `BODY.2.i`, `BODY.2.ii`, `BODY.4.i..iii`, `BODY.5.i..iii`, `BODY.8.i..ii`) or ambiguous `(i)` transition.
      * `SCOPE_CARVEOUT_DETECTED`: Clauses containing legal carve-outs/exceptions (`except to the extent`, `LESS AND EXCEPT`, `Notwithstanding the foregoing`, `provided, however`).
      * `UNRESOLVED_EXTERNAL_DEPENDENCY`: Clauses whose legal effect depends on unattached external instruments (e.g. `BODY.2`, `BODY.2.i`, `BODY.2.ii` depending on expiration of `Blue Meridian Easements` / `Cedar Lantern Easements` in Exhibits B and C).
      * `BROKEN_INTERNAL_REFERENCE`: Explicit reference to a non-existent Section or Exhibit.
      * `DEFERRED_MODALITY_PLACEHOLDER`: Signature/notary blocks with handwriting (`SIGNATURES.1`, `SIGNATURES.2`) and visual CAD/map exhibits (`EXHIBIT_D.STUB`).
      * `TEXT_COVERAGE_GAP`: Illegible scan blocks or cut-off text margins.
+     * `LANDOWNER_SPECIAL_CONDITION`: Any clause containing one or more physical or operational Landowner Special Conditions / Site Constraints.
+
+6. LANDOWNER "SPECIAL CONDITIONS" & PHYSICAL SITE CONSTRAINTS (`special_conditions`):
+   - Extract every bespoke physical or operational landowner restriction, special condition, or site constraint into `special_conditions` (1 `SpecialConditionRow` per distinct constraint).
+   - Always attach each `SpecialConditionRow` to the MOST SPECIFIC LEAF `node_id` where the constraint appears (do not duplicate the same condition on both a parent container clause and its child sub-clause).
+   - If a single clause contains multiple distinct physical constraints (e.g., a 150-foot barn setback, a locked gate rule, and a seasonal hunting blackout), decompose them into separate `SpecialConditionRow` entries sharing that `node_id`.
+   - Classify each constraint using one of the 7 `ConstraintCategory` values:
+     * `TREE_VEGETATION_PROTECTION` (trees, groves, orchards, windbreaks, timber)
+     * `STRUCTURE_BARN_WELL_SETBACK` (setbacks/buffers around barns, sheds, water wells, residences, fences, septic)
+     * `ACCESS_ROAD_GATE_PROTOCOL` (locked gates, designated entry roads, culvert weight limits, speed limits, advance notice)
+     * `LIVESTOCK_AGRICULTURE` (cattle, livestock, grazing, drainage tiles, irrigation pivots, crops)
+     * `TIMING_NOISE_HUNTING_BLACKOUT` (hunting season blackouts, harvest windows, work hours, noise/blasting curfews)
+     * `FINANCIAL_PENALTY_LIQUIDATED_DAMAGES` (explicit dollar penalties or liquidated damages for site violations)
+     * `OTHER_CUSTOM_RIDER` (other bespoke operational landowner rules)
+   - Strictly separate legal liability/indemnification carve-outs (`SCOPE_CARVEOUT_DETECTED`, such as "except for negligence or willful misconduct") and pure surveyor metes-and-bounds bearings from operational/physical site constraints.
+
+7. PORTFOLIO COUNTERPARTY EXTRACTION (`grantor_landowner_name` & `grantee_entity_name` — CR-2):
+   - Populate `grantor_landowner_name` with the full legal name of the Landowner / Grantor / Property Owner / Accommodating Party stated in the PREAMBLE, RECITALS, or SIGNATURES.
+   - Populate `grantee_entity_name` with the full legal name of the Developer SPV / Grantee / Lessee / Project Company stated in the PREAMBLE, RECITALS, or SIGNATURES.
 """
 
 
@@ -87,6 +108,8 @@ class ContractExtractorProtocol(Protocol):
         document_id: str,
         gcs_pdf_uri: str,
         pdf_bytes: bytes | None = None,
+        project_id: str = "prj_cedar_lantern_wind",
+        landowner_id: str | None = None,
     ) -> GeminiContractExtraction:
         """Extract structured contract hierarchy, terms, and exhibits from a PDF."""
 
@@ -133,6 +156,8 @@ class GeminiContractParser:
         document_id: str,
         gcs_pdf_uri: str,
         pdf_bytes: bytes | None = None,
+        project_id: str = "prj_cedar_lantern_wind",
+        landowner_id: str | None = None,
     ) -> GeminiContractExtraction:
         """Call Gemini with Structured Outputs and run deterministic post-processing normalization."""
         pdf_part = self._build_pdf_part(gcs_pdf_uri=gcs_pdf_uri, pdf_bytes=pdf_bytes)
@@ -161,7 +186,7 @@ class GeminiContractParser:
                         model=model_name,
                         contents=[
                             pdf_part,
-                            "Parse this complete legal contract PDF into its lossless hierarchical clause tree, defined terms dictionary, and exhibits catalog.",
+                            "Parse this complete legal contract PDF into its lossless hierarchical clause tree, defined terms dictionary, exhibits catalog, normalized landowner special conditions / site constraints, and counterparty names.",
                         ],
                         config=types.GenerateContentConfig(
                             system_instruction=SYSTEM_PROMPT,
@@ -211,6 +236,8 @@ class GeminiContractParser:
             extraction=raw_extraction,
             document_id=document_id,
             gcs_pdf_uri=gcs_pdf_uri,
+            project_id=project_id,
+            landowner_id=landowner_id,
         )
 
 
@@ -236,14 +263,391 @@ _CARVEOUT_PATTERN = re.compile(
     re.IGNORECASE,
 )
 
+# CR-1 Signal 1: Operational restriction, prohibition, buffer, gate/notice protocol, blackout, or penalty
+_PHYSICAL_CONSTRAINT_RESTRICTION_PATTERN = re.compile(
+    r"\b(?:shall\s+not|must\s+not|may\s+not|will\s+not|prohibit(?:ed|s)?|restrict(?:ed|ion)?|setbacks?|buffers?|no[-\s]?build|no[-\s]?disturbance|no\s+closer\s+than|minimum\s+distance|(?:keep|kept)\s+(?:\S+\s+){1,6}?locked|must\s+be\s+locked|shall\s+be\s+locked|padlock(?:ed)?|advance\s+notice|prior\s+(?:written\s+)?notice|blackouts?|curfews?|hunting\s+season|liquidated\s+damages|penalty\s+of)\b",
+    re.IGNORECASE,
+)
+
+# CR-1 Signal 2: Physical site feature, structure, vegetation, livestock, or distance/weight/dollar metric
+_PHYSICAL_CONSTRAINT_ASSET_OR_METRIC_PATTERN = re.compile(
+    r"(?:\b(?:\d+(?:,\d{3})*(?:\.\d+)?[-\s]*(?:feet|foot|ft\.?|yards?|meters?|acres?|tons?|hours?|days?)|trees?|groves?|orchards?|timber|windbreaks?|barns?|sheds?|water\s+wells?|wells?|residences?|homesteads?|septic|gates?|culverts?|cattle|livestock|grazing|drainage\s+tiles?|irrigation|hunting|harvest|blasting|trenching)\b|\$\s*\d+(?:,\d{3})*(?:\.\d{2})?\b)",
+    re.IGNORECASE,
+)
+
+_METRIC_EXTRACT_PATTERN = re.compile(
+    r"\b\d+(?:,\d{3})*(?:\.\d+)?[-\s]*(?:feet|foot|ft\.?|yards?|meters?|acres?|tons?)\b",
+    re.IGNORECASE,
+)
+_TEMPORAL_EXTRACT_PATTERN = re.compile(
+    r"\b(?:\d+[-\s]*(?:hours?|days?)(?:\s+(?:advance|prior)(?:\s+written)?\s+notice)?|(?:january|february|march|april|may|june|july|august|september|october|november|december|nov\.?|dec\.?)\s+\d{1,2}(?:\s*(?:through|to|-|–)\s*(?:january|february|march|april|may|june|july|august|september|october|november|december|nov\.?|dec\.?)?\s*\d{1,2})?|hunting\s+season|harvest\s+season)\b",
+    re.IGNORECASE,
+)
+_PENALTY_EXTRACT_PATTERN = re.compile(
+    r"\$\s*\d+(?:,\d{3})*(?:\.\d{2})?(?:\s*(?:per\s+\w+|liquidated\s+damages|penalty))?",
+    re.IGNORECASE,
+)
+_ASSET_EXTRACT_PATTERN = re.compile(
+    r"\b(?:(?:northern|southern|eastern|western|main|historic|existing|homestead|red|oak|pecan)\s+)*(?:trees?|groves?|orchards?|timber|windbreaks?|barns?|sheds?|water\s+wells?|wells?|residences?|homesteads?|septic|gates?(?:\s*#?\s*[A-Z0-9]+)?|culverts?|cattle|livestock|grazing\s+area|drainage\s+tiles?|irrigation\s+pivot|creek\s+crossing)\b",
+    re.IGNORECASE,
+)
+
+_CATEGORY_PATTERNS: tuple[tuple[ConstraintCategory, re.Pattern[str]], ...] = (
+    (
+        ConstraintCategory.TREE_VEGETATION_PROTECTION,
+        re.compile(r"\b(?:trees?|groves?|orchards?|timber|windbreaks?|vegetation|pecan|oak)\b", re.IGNORECASE),
+    ),
+    (
+        ConstraintCategory.STRUCTURE_BARN_WELL_SETBACK,
+        re.compile(
+            r"\b(?:barns?|sheds?|water\s+wells?|wells?|residences?|homesteads?|septic|setbacks?|buffers?|no[-\s]?build|no[-\s]?disturbance)\b",
+            re.IGNORECASE,
+        ),
+    ),
+    (
+        ConstraintCategory.ACCESS_ROAD_GATE_PROTOCOL,
+        re.compile(
+            r"\b(?:gates?|padlocks?|padlocked|locked|culverts?|access\s+roads?|advance\s+notice|prior\s+(?:written\s+)?notice)\b",
+            re.IGNORECASE,
+        ),
+    ),
+    (
+        ConstraintCategory.LIVESTOCK_AGRICULTURE,
+        re.compile(r"\b(?:cattle|livestock|grazing|drainage\s+tiles?|irrigation|crops?)\b", re.IGNORECASE),
+    ),
+    (
+        ConstraintCategory.TIMING_NOISE_HUNTING_BLACKOUT,
+        re.compile(r"\b(?:hunting|harvest|blackouts?|curfews?|blasting|night\s+hours|seasons?)\b", re.IGNORECASE),
+    ),
+    (
+        ConstraintCategory.FINANCIAL_PENALTY_LIQUIDATED_DAMAGES,
+        re.compile(r"(?:\b(?:liquidated\s+damages|penalty)\b|\$\s*\d+)", re.IGNORECASE),
+    ),
+)
+
+
+def _infer_constraint_category(text: str) -> ConstraintCategory:
+    """Infer the 7-category operational ConstraintCategory from clause text using word-boundary patterns."""
+    for category, pattern in _CATEGORY_PATTERNS:
+        if pattern.search(text):
+            return category
+    return ConstraintCategory.OTHER_CUSTOM_RIDER
+
+
+def _get_descendant_leaves(
+    node_id: str, children_by_parent: dict[str, list[ClauseRow]]
+) -> list[ClauseRow]:
+    """Return all leaf ClauseRow descendants under node_id."""
+    leaves: list[ClauseRow] = []
+    stack = list(children_by_parent.get(node_id, []))
+    visited_desc: set[str] = set()
+    while stack:
+        curr = stack.pop(0)
+        if curr.node_id in visited_desc:
+            continue
+        visited_desc.add(curr.node_id)
+        kids = children_by_parent.get(curr.node_id, [])
+        if kids:
+            stack.extend(kids)
+        else:
+            leaves.append(curr)
+    return leaves
+
+
+def _synthesize_fallback_condition(
+    clause: ClauseRow, document_id: str, now_iso: str
+) -> SpecialConditionRow | None:
+    """Synthesize a fallback SpecialConditionRow when both CR-1 regex signals match on a leaf clause."""
+    text_to_scan = clause.verbatim_text.strip()
+    context_to_scan = (clause.reconstructed_context_text or text_to_scan).strip()
+    if not (
+        _PHYSICAL_CONSTRAINT_RESTRICTION_PATTERN.search(context_to_scan)
+        and _PHYSICAL_CONSTRAINT_ASSET_OR_METRIC_PATTERN.search(text_to_scan)
+    ):
+        return None
+    metric_match = _METRIC_EXTRACT_PATTERN.search(text_to_scan)
+    temporal_match = _TEMPORAL_EXTRACT_PATTERN.search(text_to_scan)
+    penalty_match = _PENALTY_EXTRACT_PATTERN.search(text_to_scan)
+    asset_match = _ASSET_EXTRACT_PATTERN.search(text_to_scan)
+    target_asset = (
+        asset_match.group(0).strip()
+        if asset_match
+        else (clause.clause_title or f"Site Constraint ({clause.canonical_path})")
+    )
+    return SpecialConditionRow(
+        condition_id="",
+        document_id=document_id,
+        node_id=clause.node_id,
+        canonical_path=clause.canonical_path,
+        constraint_category=_infer_constraint_category(text_to_scan),
+        target_asset_or_area=target_asset,
+        quantitative_metric=metric_match.group(0).strip() if metric_match else None,
+        temporal_restriction=temporal_match.group(0).strip() if temporal_match else None,
+        penalty_or_consequence=penalty_match.group(0).strip() if penalty_match else None,
+        actionable_obligation_summary=text_to_scan[:240],
+        verbatim_excerpt=text_to_scan,
+        page_number=max(1, clause.page_start),
+        extraction_confidence=0.75,
+        hitl_status=HITLStatus.FLAGGED_FOR_REVIEW,
+        updated_at=now_iso,
+        reviewed_by=None,
+    )
+
+
+def make_landowner_id(project_id: str, landowner_name: str | None) -> str:
+    """Create a deterministic QRM-compatible landowner_id slug from project_id and landowner_name."""
+    if not landowner_name or not landowner_name.strip():
+        return "lnd_unassigned"
+    proj_slug = re.sub(r"^prj_", "", project_id.strip().lower())
+    proj_slug = re.sub(r"[^a-z0-9]+", "_", proj_slug).strip("_") or "default"
+    name_slug = re.sub(r"[^a-z0-9]+", "_", landowner_name.strip().lower()).strip("_")[:40]
+    if not name_slug:
+        return "lnd_unassigned"
+    return f"lnd_{proj_slug}_{name_slug}"
+
+
+_make_landowner_id = make_landowner_id
+
+
+def _extract_parties_fallback(
+    extraction: GeminiContractExtraction,
+) -> tuple[str | None, str | None]:
+    """Deterministically extract (grantor_landowner_name, grantee_entity_name) when omitted by the LLM."""
+    grantor = (extraction.grantor_landowner_name or "").strip() or None
+    grantee = (extraction.grantee_entity_name or "").strip() or None
+    if grantor and grantee:
+        return grantor, grantee
+
+    if extraction.contracting_parties_json and extraction.contracting_parties_json.strip() not in ("", "[]"):
+        try:
+            parties = json.loads(extraction.contracting_parties_json)
+            if isinstance(parties, list):
+                for p in parties:
+                    if not isinstance(p, dict):
+                        continue
+                    p_name = str(p.get("name") or "").strip()
+                    p_role = str(p.get("role") or "").strip().lower()
+                    if not p_name:
+                        continue
+                    if any(k in p_role for k in ("landowner", "grantor", "lessor", "owner")) and not grantor:
+                        grantor = p_name
+                    elif any(
+                        k in p_role
+                        for k in ("developer", "grantee", "lessee", "wind", "solar", "storage", "geothermal", "project")
+                    ) and not grantee:
+                        grantee = p_name
+                    elif "transmission" in p_role and not grantor:
+                        grantor = p_name
+                if len(parties) >= 2 and isinstance(parties[0], dict) and isinstance(parties[1], dict):
+                    if not grantee and not grantor:
+                        grantee = str(parties[0].get("name") or "").strip() or None
+                        grantor = str(parties[1].get("name") or "").strip() or None
+                    elif not grantor:
+                        other = [
+                            str(p.get("name") or "").strip()
+                            for p in parties
+                            if isinstance(p, dict) and str(p.get("name") or "").strip() != grantee
+                        ]
+                        if other:
+                            grantor = other[0]
+                    elif not grantee:
+                        other = [
+                            str(p.get("name") or "").strip()
+                            for p in parties
+                            if isinstance(p, dict) and str(p.get("name") or "").strip() != grantor
+                        ]
+                        if other:
+                            grantee = other[0]
+        except Exception:  # noqa: BLE001
+            pass
+
+    if grantor and grantee:
+        return grantor, grantee
+
+    for clause in extraction.clauses:
+        if clause.document_zone not in (DocumentZone.PREAMBLE, DocumentZone.RECITALS, DocumentZone.BODY):
+            continue
+        txt = f"{clause.preamble_text or ''} {clause.verbatim_text}".strip()
+        m_between = re.search(
+            r"(?:by\s+and\s+between|entered\s+into\s+by(?:\s+and\s+between)?)\s+([A-Z][A-Za-z0-9\s,&.'-]+?(?:LLC|Inc\.|LP|Corp\.|Trust|Family|Landowner|Owner)?)\s*(\([^)]*\))?\s*,?\s*(?:a\s+[A-Za-z\s]+,\s*)?and\s+([A-Z][A-Za-z0-9\s,&.'-]+?(?:LLC|Inc\.|LP|Corp\.|Trust|Family|Landowner|Owner)?)\s*(\([^)]*\))?(?:\s*,|\s*\.|$)",
+            txt,
+        )
+        if m_between:
+            p1 = m_between.group(1).strip(" ,.")
+            r1 = (m_between.group(2) or "").lower()
+            p2 = m_between.group(3).strip(" ,.")
+            r2 = (m_between.group(4) or "").lower()
+            dev_kws = (
+                "wind",
+                "solar",
+                "storage",
+                "transmission",
+                "geothermal",
+                "bess",
+                "energy",
+                "invenergy",
+                "generation",
+            )
+            if any(k in r1 for k in ("owner", "landowner", "grantor", "lessor")) or any(
+                k in r2 for k in ("grantee", "lessee", "developer")
+            ):
+                grantor = grantor or p1
+                grantee = grantee or p2
+            elif any(k in r1 for k in ("grantee", "lessee", "developer")) or any(
+                k in r2 for k in ("owner", "landowner", "grantor", "lessor")
+            ):
+                grantee = grantee or p1
+                grantor = grantor or p2
+            elif any(k in p1.lower() for k in dev_kws) and not any(k in p2.lower() for k in dev_kws):
+                grantee = grantee or p1
+                grantor = grantor or p2
+            else:
+                grantor = grantor or p1
+                grantee = grantee or p2
+            break
+
+    return grantor, grantee
+
+
+def _normalize_special_conditions(
+    extraction: GeminiContractExtraction,
+    clauses_by_id: dict[str, ClauseRow],
+    document_id: str,
+    now_iso: str,
+    project_id: str = "prj_cedar_lantern_wind",
+    landowner_id: str = "lnd_unassigned",
+) -> list[SpecialConditionRow]:
+    """Normalize SpecialConditionRow items, deduplicate/re-home sandwich parent conditions, and run 2-signal leaf fallback."""
+    parent_node_ids: set[str] = {
+        c.parent_node_id for c in extraction.clauses if c.parent_node_id and c.parent_node_id in clauses_by_id
+    }
+    children_by_parent: dict[str, list[ClauseRow]] = {}
+    for c in extraction.clauses:
+        if c.parent_node_id and c.parent_node_id in clauses_by_id:
+            children_by_parent.setdefault(c.parent_node_id, []).append(c)
+
+    raw_conditions_by_node: dict[str, list[SpecialConditionRow]] = {}
+    for sc in extraction.special_conditions:
+        if sc.node_id not in clauses_by_id:
+            continue
+        src_clause = clauses_by_id[sc.node_id]
+        sc.document_id = document_id
+        sc.canonical_path = src_clause.canonical_path
+        sc.page_number = max(1, sc.page_number if sc.page_number >= 1 else src_clause.page_start)
+        sc.extraction_confidence = min(1.0, max(0.0, float(sc.extraction_confidence)))
+        if sc.hitl_status != HITLStatus.APPROVED_BY_HUMAN:
+            sc.hitl_status = HITLStatus.FLAGGED_FOR_REVIEW
+        sc.updated_at = now_iso
+        sc.project_id = project_id
+        sc.landowner_id = landowner_id
+        raw_conditions_by_node.setdefault(sc.node_id, []).append(sc)
+
+    conditions_by_node: dict[str, list[SpecialConditionRow]] = {
+        nid: list(conds) for nid, conds in raw_conditions_by_node.items() if nid not in parent_node_ids
+    }
+    for parent_id in parent_node_ids:
+        parent_conds = raw_conditions_by_node.get(parent_id, [])
+        if not parent_conds:
+            continue
+        desc_leaves = _get_descendant_leaves(parent_id, children_by_parent)
+        kept_parent_conds: list[SpecialConditionRow] = []
+        for p_sc in parent_conds:
+            p_excerpt_lower = p_sc.verbatim_excerpt.strip().lower()
+            p_asset_lower = p_sc.target_asset_or_area.strip().lower()
+            matched_leaf: ClauseRow | None = None
+            is_duplicate_of_leaf = False
+
+            for leaf in desc_leaves:
+                leaf_text_lower = leaf.verbatim_text.strip().lower()
+                leaf_conds = conditions_by_node.get(leaf.node_id, [])
+                for l_sc in leaf_conds:
+                    l_excerpt_lower = l_sc.verbatim_excerpt.strip().lower()
+                    l_asset_lower = l_sc.target_asset_or_area.strip().lower()
+                    if (
+                        p_excerpt_lower and (p_excerpt_lower in l_excerpt_lower or l_excerpt_lower in p_excerpt_lower)
+                    ) or (
+                        l_sc.constraint_category == p_sc.constraint_category
+                        and p_asset_lower
+                        and (p_asset_lower in l_asset_lower or l_asset_lower in p_asset_lower)
+                    ):
+                        is_duplicate_of_leaf = True
+                        break
+                if is_duplicate_of_leaf:
+                    break
+                if matched_leaf is None and (
+                    (p_excerpt_lower and (p_excerpt_lower in leaf_text_lower or leaf_text_lower in p_excerpt_lower))
+                    or (p_asset_lower and p_asset_lower in leaf_text_lower)
+                ):
+                    matched_leaf = leaf
+
+            if is_duplicate_of_leaf:
+                continue
+            if matched_leaf is not None:
+                p_sc.node_id = matched_leaf.node_id
+                p_sc.canonical_path = matched_leaf.canonical_path
+                p_sc.page_number = matched_leaf.page_start
+                conditions_by_node.setdefault(matched_leaf.node_id, []).append(p_sc)
+            else:
+                kept_parent_conds.append(p_sc)
+        if kept_parent_conds:
+            conditions_by_node[parent_id] = kept_parent_conds
+
+    for clause in extraction.clauses:
+        if clause.node_id in parent_node_ids:
+            continue
+        if clause.document_zone in (
+            DocumentZone.PREAMBLE,
+            DocumentZone.RECITALS,
+            DocumentZone.SIGNATURES,
+        ):
+            continue
+        if "STUB" in clause.node_id.upper():
+            continue
+        if conditions_by_node.get(clause.node_id):
+            continue
+
+        fallback_sc = _synthesize_fallback_condition(clause, document_id, now_iso)
+        if fallback_sc is not None:
+            conditions_by_node.setdefault(clause.node_id, []).append(fallback_sc)
+
+    normalized_special_conditions: list[SpecialConditionRow] = []
+    for clause in extraction.clauses:
+        node_conds = conditions_by_node.get(clause.node_id, [])
+        for idx, sc in enumerate(node_conds, start=1):
+            sc.condition_id = f"sc_{clause.node_id}_{idx}"
+            sc.document_id = document_id
+            sc.node_id = clause.node_id
+            sc.canonical_path = clause.canonical_path
+            sc.page_number = max(1, sc.page_number if sc.page_number >= 1 else clause.page_start)
+            sc.updated_at = now_iso
+            sc.project_id = project_id
+            sc.landowner_id = landowner_id
+            normalized_special_conditions.append(sc)
+        clause.special_condition_count = len(node_conds)
+        clause.has_special_condition = len(node_conds) > 0
+
+    return normalized_special_conditions
+
 
 def normalize_and_enrich_extraction(
     extraction: GeminiContractExtraction,
     document_id: str,
     gcs_pdf_uri: str,
+    project_id: str = "prj_cedar_lantern_wind",
+    landowner_id: str | None = None,
 ) -> GeminiContractExtraction:
-    """Enforce deterministic hierarchy tiers, sandwich-clause context, 2-hop external deps, and 6 HITL flags."""
+    """Enforce deterministic hierarchy tiers, sandwich-clause context, 2-hop external deps, CR-1 special conditions, CR-2 portfolio keys, and HITL flags."""
     now_iso = utc_now_iso()
+
+    # 0. CR-2: Populate grantor_landowner_name & grantee_entity_name with deterministic fallback
+    grantor_name, grantee_name = _extract_parties_fallback(extraction)
+    extraction.grantor_landowner_name = grantor_name
+    extraction.grantee_entity_name = grantee_name
+    resolved_landowner_id = (
+        landowner_id.strip()
+        if landowner_id and landowner_id.strip()
+        else _make_landowner_id(project_id, grantor_name)
+    )
 
     # 1. Index clauses by node_id and normalize basic fields
     clauses_by_id: dict[str, ClauseRow] = {}
@@ -414,7 +818,17 @@ def normalize_and_enrich_extraction(
     for ex in extraction.exhibits_catalog:
         ex.referenced_by_nodes = _format_pipe(exhibit_usage_map.get(ex.exhibit_id, []))
 
-    # 5. Evaluate the 6 Universal HITL Flag Rules on every clause
+    # 4b. CR-1 & CR-2: Normalize SpecialConditions, deduplicate parent-vs-child sandwich nodes, run 2-signal fallback, and stamp portfolio keys
+    extraction.special_conditions = _normalize_special_conditions(
+        extraction=extraction,
+        clauses_by_id=clauses_by_id,
+        document_id=document_id,
+        now_iso=now_iso,
+        project_id=project_id,
+        landowner_id=resolved_landowner_id,
+    )
+
+    # 5. Evaluate the Universal HITL Flag Rules (including CR-1 LANDOWNER_SPECIAL_CONDITION) on every clause
     for clause in extraction.clauses:
         flags = set(_split_pipe(clause.hitl_flag_reasons))
         parent = clauses_by_id.get(clause.parent_node_id) if clause.parent_node_id else None
@@ -468,6 +882,12 @@ def normalize_and_enrich_extraction(
             if xref.upper().startswith("EXHIBIT ") and xref.upper() not in known_exhibits:
                 flags.add(FlagCode.BROKEN_INTERNAL_REFERENCE.value)
 
+        # Rule 6 (CR-1 Decision #4): LANDOWNER_SPECIAL_CONDITION mandatory HITL review gate
+        if clause.has_special_condition or clause.special_condition_count > 0:
+            flags.add(FlagCode.LANDOWNER_SPECIAL_CONDITION.value)
+        else:
+            flags.discard(FlagCode.LANDOWNER_SPECIAL_CONDITION.value)
+
         clause.hitl_flag_reasons = _format_pipe(flags, sort_items=True)
         if clause.hitl_status != HITLStatus.APPROVED_BY_HUMAN:
             if FlagCode.DEFERRED_MODALITY_PLACEHOLDER.value in flags:
@@ -478,3 +898,4 @@ def normalize_and_enrich_extraction(
                 clause.hitl_status = HITLStatus.VERIFIED_AUTO
 
     return extraction
+

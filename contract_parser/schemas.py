@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from enum import StrEnum
+import re
 from pydantic import BaseModel, ConfigDict, Field
 
 
@@ -20,6 +21,7 @@ class DocumentZone(StrEnum):
     BODY = "BODY"
     SIGNATURES = "SIGNATURES"
     EXHIBIT_OR_SCHEDULE = "EXHIBIT_OR_SCHEDULE"
+    EXHIBIT_A = "EXHIBIT_OR_SCHEDULE"
     AMENDMENT = "AMENDMENT"
 
 
@@ -34,6 +36,7 @@ class NumberingScheme(StrEnum):
     ROMAN_LOWER = "ROMAN_LOWER"
     PAREN_INT = "PAREN_INT"
     NAMED_HEADER = "NAMED_HEADER"
+    BLOCK_HEADER = "NAMED_HEADER"
     UNNUMBERED = "UNNUMBERED"
 
 
@@ -65,7 +68,7 @@ class HITLStatus(StrEnum):
 
 
 class FlagCode(StrEnum):
-    """Six contract-agnostic anomaly codes triggering HITL review."""
+    """Contract-agnostic anomaly and operational risk codes triggering HITL review."""
 
     TEXT_COVERAGE_GAP = "TEXT_COVERAGE_GAP"
     AMBIGUOUS_HIERARCHY_MARKER = "AMBIGUOUS_HIERARCHY_MARKER"
@@ -73,6 +76,42 @@ class FlagCode(StrEnum):
     UNRESOLVED_EXTERNAL_DEPENDENCY = "UNRESOLVED_EXTERNAL_DEPENDENCY"
     BROKEN_INTERNAL_REFERENCE = "BROKEN_INTERNAL_REFERENCE"
     DEFERRED_MODALITY_PLACEHOLDER = "DEFERRED_MODALITY_PLACEHOLDER"
+    LANDOWNER_SPECIAL_CONDITION = "LANDOWNER_SPECIAL_CONDITION"
+
+
+class ConstraintCategory(StrEnum):
+    """Unified taxonomy for operational and physical site constraints across all 5 energy technologies (CR-1 & CR-2)."""
+
+    # CR-1 core taxonomy values
+    TREE_VEGETATION_PROTECTION = "TREE_VEGETATION_PROTECTION"
+    STRUCTURE_BARN_WELL_SETBACK = "STRUCTURE_BARN_WELL_SETBACK"
+    ACCESS_ROAD_GATE_PROTOCOL = "ACCESS_ROAD_GATE_PROTOCOL"
+    LIVESTOCK_AGRICULTURE = "LIVESTOCK_AGRICULTURE"
+    TIMING_NOISE_HUNTING_BLACKOUT = "TIMING_NOISE_HUNTING_BLACKOUT"
+    FINANCIAL_PENALTY_LIQUIDATED_DAMAGES = "FINANCIAL_PENALTY_LIQUIDATED_DAMAGES"
+    OTHER_CUSTOM_RIDER = "OTHER_CUSTOM_RIDER"
+
+    # CR-2 generalized 10-category cross-technology taxonomy values
+    SETBACK_OR_BUFFER = "SETBACK_OR_BUFFER"
+    CONSTRUCTION_OR_BLACKOUT_WINDOW = "CONSTRUCTION_OR_BLACKOUT_WINDOW"
+    CROP_OR_TIMBER_COMPENSATION = "CROP_OR_TIMBER_COMPENSATION"
+    NOISE_OR_SHADOW_FLICKER = "NOISE_OR_SHADOW_FLICKER"
+    DRAINAGE_OR_SOIL_RESTORATION = "DRAINAGE_OR_SOIL_RESTORATION"
+    GATES_FENCING_OR_LIVESTOCK = "GATES_FENCING_OR_LIVESTOCK"
+    ACCESS_ROAD_OR_PARCEL_RESTRICTION = "ACCESS_ROAD_OR_PARCEL_RESTRICTION"
+    BLASTING_OR_EXCAVATION = "BLASTING_OR_EXCAVATION"
+    DECOMMISSIONING_OR_BOND = "DECOMMISSIONING_OR_BOND"
+    OTHER_SPECIAL_CONDITION = "OTHER_SPECIAL_CONDITION"
+
+
+class EnergyTechnology(StrEnum):
+    """Five Invenergy renewable energy technology classifications (CR-2 / R3)."""
+
+    ONSHORE_WIND = "ONSHORE_WIND"
+    SOLAR = "SOLAR"
+    STORAGE = "STORAGE"
+    TRANSMISSION = "TRANSMISSION"
+    GEOTHERMAL = "GEOTHERMAL"
 
 
 class IngestionStatus(StrEnum):
@@ -84,8 +123,63 @@ class IngestionStatus(StrEnum):
     FAILED = "FAILED"
 
 
+class ProjectRow(BaseModel):
+    """Table 6: `projects` Master ERP Project Registry in BigQuery & SQLite (12 columns for CR-2 / R3)."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    project_id: str = Field(description="Canonical project identifier (e.g. prj_cedar_lantern_wind)")
+    project_name: str = Field(description="Human-readable project name (e.g. Cedar Lantern Wind Energy Center)")
+    energy_technology: EnergyTechnology = Field(
+        default=EnergyTechnology.ONSHORE_WIND,
+        description="ONSHORE_WIND, SOLAR, STORAGE, TRANSMISSION, or GEOTHERMAL",
+    )
+    erp_project_code: str = Field(description="Downstream Oracle ERP project code (e.g. ERP-WND-001)")
+    state_province: str | None = Field(default=None, description="Primary state or province jurisdiction (e.g. IL, OH, TX)")
+    county: str | None = Field(default=None, description="Primary county jurisdiction")
+    target_capacity_mw: float | None = Field(default=None, description="Target nameplate capacity in MW")
+    landowner_count: int = Field(default=0, description="Total distinct landowners bound to this project")
+    document_count: int = Field(default=0, description="Total deduplicated contract PDFs in this project's stack")
+    special_conditions_count: int = Field(
+        default=0,
+        description="Total extracted SpecialConditionRow items across all contracts in this project",
+    )
+    flagged_node_count: int = Field(
+        default=0,
+        description="Total clauses awaiting HITL review across this project",
+    )
+    updated_at: str = Field(default_factory=utc_now_iso, description="UTC timestamp of this row version")
+
+
+class LandownerRow(BaseModel):
+    """Table 7: `landowners` Master QRM Landowner Registry in BigQuery & SQLite (10 columns for CR-2 / R3)."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    landowner_id: str = Field(description="Deterministic or QRM-backed ID (lnd_<project_id>_<slug>)")
+    project_id: str = Field(default="prj_cedar_lantern_wind", description="Parent ProjectRow.project_id")
+    landowner_name: str = Field(description="Canonical Grantor / Landowner counterparty name")
+    qrm_party_id: str | None = Field(default=None, description="External Oracle QRM landowner key (e.g. QRM-A1B2C3)")
+    grantee_entity_name: str | None = Field(default=None, description="Project operating subsidiary / Grantee SPV")
+    parcel_summary: str | None = Field(default=None, description="Pipe-delimited summary of parcels across contracts")
+    is_multi_parcel: bool = Field(
+        default=False,
+        description="False for 90% 1:1 case; True when contract_count > 1 or multiple EXHIBIT_A.PARCEL_* nodes exist",
+    )
+    contract_count: int = Field(
+        default=1,
+        description="Number of deduplicated contracts linked to this landowner in this project",
+    )
+    special_conditions_count: int = Field(
+        default=0,
+        description="Total SpecialConditionRow constraints across this landowner's contracts",
+    )
+    updated_at: str = Field(default_factory=utc_now_iso, description="UTC timestamp of this row version")
+
+
+
 class ClauseRow(BaseModel):
-    """Table 2: `clauses` / `clauses.csv` (30 columns: 27 core structural/context fields + 3 audit fields)."""
+    """Table 2: `clauses` / `clauses.csv` (32 columns: 27 core structural/context fields + 2 CR-1 roll-ups + 3 audit fields)."""
 
     model_config = ConfigDict(extra="ignore")
 
@@ -114,6 +208,14 @@ class ClauseRow(BaseModel):
     cross_references: str = Field(default="NONE", description="Pipe-delimited internal/external references, or NONE")
     page_start: int = Field(ge=1, description="Starting 1-indexed physical PDF page number")
     page_end: int = Field(ge=1, description="Ending 1-indexed physical PDF page number")
+    has_special_condition: bool = Field(
+        default=False,
+        description="True if one or more Landowner Special Conditions are attached to this node_id",
+    )
+    special_condition_count: int = Field(
+        default=0,
+        description="Number of normalized SpecialConditionRow items attached to this node_id",
+    )
     hitl_status: HITLStatus = Field(default=HITLStatus.VERIFIED_AUTO, description="HITL verification status")
     hitl_flag_reasons: str = Field(default="NONE", description="Pipe-delimited FlagCode values or NONE")
     updated_at: str = Field(default_factory=utc_now_iso, description="UTC timestamp of this row version")
@@ -153,8 +255,85 @@ class ExhibitCatalogRow(BaseModel):
     updated_at: str = Field(default_factory=utc_now_iso, description="UTC timestamp of this row version")
 
 
+class SpecialConditionRow(BaseModel):
+    """Table 5: `special_conditions` / `special_conditions.csv` (18 columns: 16 CR-1 fields + 2 CR-2 portfolio keys)."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    condition_id: str = Field(
+        default="",
+        description="Deterministic ID (`sc_<node_id>_<1_based_index>`, e.g., `sc_BODY.12.a_1`)",
+    )
+    document_id: str = Field(
+        default="",
+        description="Parent contract SHA-256 document ID (`doc_<sha256[:16]>`)",
+    )
+    node_id: str = Field(
+        description="Source ClauseRow.node_id (most specific leaf node where constraint appears)"
+    )
+    canonical_path: str = Field(
+        default="",
+        description="Lossless dot-delimited clause path from ClauseRow.canonical_path",
+    )
+    constraint_category: ConstraintCategory = Field(
+        description="Unified ConstraintCategory enum value across CR-1 and CR-2 taxonomies"
+    )
+    target_asset_or_area: str = Field(
+        description="Physical feature, structure, or parcel zone (e.g., 'Northern Red Barn', 'Gate #3')"
+    )
+    quantitative_metric: str | None = Field(
+        default=None,
+        description="Extracted buffer distance, weight limit, or measurement (e.g., '150 feet', '20 tons')",
+    )
+    temporal_restriction: str | None = Field(
+        default=None,
+        description="Extracted date window, notice period, or hours (e.g., 'Nov 15 - Dec 15', '48 hours notice')",
+    )
+    penalty_or_consequence: str | None = Field(
+        default=None,
+        description="Explicit financial penalty or remedy if violated (e.g., '$100,000 liquidated damages')",
+    )
+    actionable_obligation_summary: str = Field(
+        description="Plain-English instruction for field/construction crews"
+    )
+    verbatim_excerpt: str = Field(
+        description="Exact substring from the contract establishing the constraint"
+    )
+    page_number: int = Field(
+        default=1,
+        ge=1,
+        description="1-indexed physical PDF page number for instant pdf.js jump",
+    )
+    extraction_confidence: float = Field(
+        default=0.95,
+        ge=0.0,
+        le=1.0,
+        description="Model confidence score ([0.0, 1.0], default 0.95 for LLM, 0.75 for regex fallback)",
+    )
+    hitl_status: HITLStatus = Field(
+        default=HITLStatus.FLAGGED_FOR_REVIEW,
+        description="Defaults to HITLStatus.FLAGGED_FOR_REVIEW per Decision #4 (APPROVED_BY_HUMAN after sign-off)",
+    )
+    updated_at: str = Field(
+        default_factory=utc_now_iso,
+        description="Append-only UTC timestamp",
+    )
+    reviewed_by: str | None = Field(
+        default=None,
+        description="Reviewer identifier once verified in the HITL Workbench",
+    )
+    project_id: str = Field(
+        default="prj_cedar_lantern_wind",
+        description="Parent ProjectRow.project_id for centralized project-level constraint search (CR-2)",
+    )
+    landowner_id: str = Field(
+        default="lnd_unassigned",
+        description="Parent LandownerRow.landowner_id for landowner-level constraint roll-up (CR-2)",
+    )
+
+
 class DocumentRegistryRow(BaseModel):
-    """Table 1: `documents` Master Document Registry in BigQuery (12 columns)."""
+    """Table 1: `documents` Master Document Registry in BigQuery (18 columns: 13 core/CR-1 fields + 5 CR-2 portfolio fields)."""
 
     model_config = ConfigDict(extra="ignore")
 
@@ -166,10 +345,49 @@ class DocumentRegistryRow(BaseModel):
     contracting_parties_json: str = Field(default="[]", description="JSON array of contracting parties and roles")
     effective_date: str | None = Field(default=None, description="Extracted effective or execution date")
     flagged_node_count: int = Field(default=0, description="Count of clauses in FLAGGED_FOR_REVIEW or PLACEHOLDER_FOR_REVIEW")
+    special_conditions_count: int = Field(
+        default=0,
+        description="Total number of normalized Landowner Special Conditions extracted across the document",
+    )
     ingestion_status: IngestionStatus = Field(default=IngestionStatus.PROCESSING, description="Ingestion lifecycle status")
     error_message: str | None = Field(default=None, description="Populated if ingestion_status == FAILED")
     ingested_at: str = Field(default_factory=utc_now_iso, description="UTC timestamp of initial ingestion")
     updated_at: str = Field(default_factory=utc_now_iso, description="UTC timestamp of this row version")
+    project_id: str = Field(
+        default="prj_cedar_lantern_wind",
+        description="Parent ProjectRow.project_id selected prior to upload (CR-2)",
+    )
+    landowner_id: str = Field(
+        default="lnd_unassigned",
+        description="Parent LandownerRow.landowner_id bound during ingestion (CR-2)",
+    )
+    energy_technology: EnergyTechnology = Field(
+        default=EnergyTechnology.ONSHORE_WIND,
+        description="Project energy technology classification (CR-2)",
+    )
+    grantor_landowner_name: str | None = Field(
+        default=None,
+        description="Grantor / Landowner counterparty name extracted from the contract (CR-2)",
+    )
+    grantee_entity_name: str | None = Field(
+        default=None,
+        description="Grantee / Developer SPV entity name extracted from the contract (CR-2)",
+    )
+
+
+class CreateProjectRequest(BaseModel):
+    """Payload for creating or updating an ERP ProjectRow via POST /api/v1/projects."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    project_id: str | None = Field(default=None, description="Optional explicit project_id; generated from project_name if omitted")
+    project_name: str = Field(description="Human-readable project name")
+    energy_technology: EnergyTechnology = Field(default=EnergyTechnology.ONSHORE_WIND)
+    erp_project_code: str = Field(default="ERP-CUSTOM-001", description="Oracle ERP project code (e.g. ERP-WND-909)")
+    state_province: str | None = Field(default=None)
+    county: str | None = Field(default=None)
+    target_capacity_mw: float | None = Field(default=None)
+    operating_llc_name: str | None = Field(default=None)
 
 
 class ClauseReviewRequest(BaseModel):
@@ -195,6 +413,14 @@ class GeminiContractExtraction(BaseModel):
         default=None,
         description="Effective or execution date stated in the agreement (e.g. 'October 14, 2024')",
     )
+    grantor_landowner_name: str | None = Field(
+        default=None,
+        description="Primary Landowner / Grantor / Property Owner counterparty name stated in the agreement preamble or recitals (CR-2)",
+    )
+    grantee_entity_name: str | None = Field(
+        default=None,
+        description="Primary Developer SPV / Grantee / Lessee counterparty name stated in the agreement preamble or recitals (CR-2)",
+    )
     clauses: list[ClauseRow] = Field(
         default_factory=list,
         description="Ordered list of all hierarchical clause nodes across PREAMBLE, RECITALS, BODY, SIGNATURES, EXHIBIT_OR_SCHEDULE, and AMENDMENT zones",
@@ -207,6 +433,10 @@ class GeminiContractExtraction(BaseModel):
         default_factory=list,
         description="Catalog of all attached Exhibits, Schedules, or Appendices",
     )
+    special_conditions: list[SpecialConditionRow] = Field(
+        default_factory=list,
+        description="Normalized physical/operational landowner special conditions and site constraints (1 row per distinct constraint, linked to the most specific leaf node_id)",
+    )
 
 
 class ParsedContractBundle(BaseModel):
@@ -216,9 +446,302 @@ class ParsedContractBundle(BaseModel):
     clauses: list[ClauseRow]
     defined_terms: list[DefinedTermRow]
     exhibits_catalog: list[ExhibitCatalogRow]
+    special_conditions: list[SpecialConditionRow] = Field(default_factory=list)
+
+
+class ConstructionTrade(StrEnum):
+    """Field crew construction trade routing for Do-Not-Disturb (DND) checklist items (CR-3 / R6)."""
+
+    ACCESS_FENCING_GATES = "ACCESS_FENCING_GATES"
+    CLEARING_VEGETATION = "CLEARING_VEGETATION"
+    CIVIL_GRADING_SOIL = "CIVIL_GRADING_SOIL"
+    BLASTING_TRENCHING_FOUNDATION = "BLASTING_TRENCHING_FOUNDATION"
+    CRANE_TRANSPORT_ERECTION = "CRANE_TRANSPORT_ERECTION"
+    GENERAL_SITE_OPERATIONS = "GENERAL_SITE_OPERATIONS"
+
+
+class DNDSeverityLevel(StrEnum):
+    """Field hazard severity classification for DND checklist items (CR-3 / R6)."""
+
+    RED_ZONE_NO_GO = "RED_ZONE_NO_GO"
+    SEASONAL_BLACKOUT = "SEASONAL_BLACKOUT"
+    MANDATORY_PROTOCOL = "MANDATORY_PROTOCOL"
+
+
+class DNDDispatchClearance(StrEnum):
+    """Item-level safety interlock state for unverified vs. human-approved constraints (CR-3 Option 2A)."""
+
+    CLEARED_FOR_DISPATCH = "CLEARED_FOR_DISPATCH"
+    HOLD_VERIFY_WITH_LAND_AGENT = "HOLD_VERIFY_WITH_LAND_AGENT"
+
+
+class DNDDispatchReadiness(StrEnum):
+    """Contract-level field dispatch readiness gate (CR-3 Option 2A)."""
+
+    READY_FOR_DISPATCH = "READY_FOR_DISPATCH"
+    HOLD_PENDING_HITL = "HOLD_PENDING_HITL"
+    NO_CONSTRAINTS_IDENTIFIED = "NO_CONSTRAINTS_IDENTIFIED"
+
+
+class DNDChecklistItem(BaseModel):
+    """Dynamically synthesized Field Crew Do-Not-Disturb (DND) checklist item for a contract (20 fields, CR-3)."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    condition_id: str = Field(description="Source SpecialConditionRow.condition_id")
+    document_id: str = Field(description="Parent contract document_id")
+    project_id: str = Field(default="prj_cedar_lantern_wind", description="Parent ProjectRow.project_id")
+    landowner_id: str = Field(default="lnd_unassigned", description="Parent LandownerRow.landowner_id")
+    node_id: str = Field(description="Source ClauseRow.node_id for 1-click HITL approval")
+    canonical_path: str = Field(default="", description="Dot-delimited clause path")
+    constraint_category: ConstraintCategory = Field(description="Source legal/operational constraint category")
+    construction_trade: ConstructionTrade = Field(description="Deterministically mapped field crew trade")
+    severity_level: DNDSeverityLevel = Field(description="Deterministically mapped hazard severity")
+    dispatch_clearance: DNDDispatchClearance = Field(
+        description="CLEARED_FOR_DISPATCH if hitl_status == APPROVED_BY_HUMAN, else HOLD_VERIFY_WITH_LAND_AGENT"
+    )
+    field_directive_title: str = Field(description="Concise uppercase field callout")
+    target_asset_or_area: str = Field(description="Physical structure, gate, well, or parcel zone")
+    quantitative_metric: str | None = Field(default=None, description="Hard distance, setback, weight limit, or dimension")
+    temporal_restriction: str | None = Field(default=None, description="Blackout dates, hours, or required notice window")
+    penalty_or_consequence: str | None = Field(default=None, description="Financial penalty or liquidated damages exposure")
+    actionable_obligation_summary: str = Field(description="Plain-English crew instruction")
+    verbatim_excerpt: str = Field(description="Exact contract text for verification")
+    page_number: int = Field(default=1, ge=1, description="1-indexed PDF page number for instant pdf.js jump")
+    hitl_status: HITLStatus = Field(default=HITLStatus.FLAGGED_FOR_REVIEW, description="Underlying verification status")
+    reviewed_by: str | None = Field(default=None, description="Reviewer who approved the constraint")
+
+
+class DNDChecklistSignoffRow(BaseModel):
+    """Table 8: `dnd_checklist_signoffs` Pre-Job Tailgate Briefing Sign-Off Audit Table (12 columns, CR-3 / R6)."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    signoff_id: str = Field(description="Deterministic or timestamped ID (sig_<doc_short>_<hash8>)")
+    document_id: str = Field(description="Foreign key to documents.document_id")
+    project_id: str = Field(default="prj_cedar_lantern_wind", description="Foreign key to projects.project_id")
+    landowner_id: str = Field(default="lnd_unassigned", description="Foreign key to landowners.landowner_id")
+    subcontractor_company: str = Field(description="Subcontractor firm name (e.g. Apex Civil & Grading LLC)")
+    foreman_name: str = Field(description="Field superintendent or crew foreman signing off")
+    construction_trade: ConstructionTrade = Field(
+        default=ConstructionTrade.GENERAL_SITE_OPERATIONS,
+        description="Primary trade scope briefed",
+    )
+    acknowledged_condition_ids: str = Field(
+        description="Pipe-delimited condition_id values acknowledged in the briefing"
+    )
+    acknowledged_count: int = Field(ge=1, description="Total number of DND items acknowledged")
+    dispatch_readiness_at_signoff: DNDDispatchReadiness = Field(
+        default=DNDDispatchReadiness.HOLD_PENDING_HITL,
+        description="Snapshot of contract readiness at sign-off",
+    )
+    briefing_notes: str | None = Field(default=None, description="Optional tailgate briefing notes or field observations")
+    signed_at: str = Field(default_factory=utc_now_iso, description="ISO-8601 UTC timestamp of sign-off")
+
+
+class CreateDNDSignoffRequest(BaseModel):
+    """Payload for POST /api/v1/documents/{document_id}/dnd-checklist:signoff."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    subcontractor_company: str = Field(description="Non-empty subcontractor firm name")
+    foreman_name: str = Field(description="Non-empty foreman or superintendent name")
+    construction_trade: ConstructionTrade = Field(
+        default=ConstructionTrade.GENERAL_SITE_OPERATIONS,
+        description="Primary trade briefed",
+    )
+    acknowledged_condition_ids: list[str] | str = Field(
+        default_factory=list,
+        description="List of condition_id strings or pipe-delimited condition_id string",
+    )
+    briefing_notes: str | None = Field(default=None, description="Optional field briefing notes")
+
+
+class DNDChecklistBundle(BaseModel):
+    """Single-contract Field Crew Do-Not-Disturb Checklist response bundle (CR-3)."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    document_id: str
+    filename: str
+    project_id: str
+    project_name: str
+    erp_project_code: str
+    energy_technology: EnergyTechnology
+    landowner_id: str
+    landowner_name: str
+    parcel_summary: str | None = None
+    dispatch_readiness: DNDDispatchReadiness
+    total_items: int = 0
+    filtered_items_count: int = 0
+    red_zone_count: int = 0
+    seasonal_blackout_count: int = 0
+    mandatory_protocol_count: int = 0
+    cleared_count: int = 0
+    hold_count: int = 0
+    trade_breakdown: dict[str, int] = Field(default_factory=dict)
+    items: list[DNDChecklistItem] = Field(default_factory=list)
+    signoffs: list[DNDChecklistSignoffRow] = Field(default_factory=list)
+
+
+_RED_ZONE_CATEGORIES: frozenset[ConstraintCategory] = frozenset(
+    {
+        ConstraintCategory.TREE_VEGETATION_PROTECTION,
+        ConstraintCategory.CROP_OR_TIMBER_COMPENSATION,
+        ConstraintCategory.STRUCTURE_BARN_WELL_SETBACK,
+        ConstraintCategory.SETBACK_OR_BUFFER,
+        ConstraintCategory.BLASTING_OR_EXCAVATION,
+        ConstraintCategory.FINANCIAL_PENALTY_LIQUIDATED_DAMAGES,
+    }
+)
+
+_SEASONAL_CATEGORIES: frozenset[ConstraintCategory] = frozenset(
+    {
+        ConstraintCategory.TIMING_NOISE_HUNTING_BLACKOUT,
+        ConstraintCategory.CONSTRUCTION_OR_BLACKOUT_WINDOW,
+    }
+)
+
+
+def classify_dnd_condition(sc: SpecialConditionRow) -> tuple[ConstructionTrade, DNDSeverityLevel, str]:
+    """Deterministically map a SpecialConditionRow to ConstructionTrade, DNDSeverityLevel, and field_directive_title."""
+    combined_text = f"{sc.target_asset_or_area} {sc.actionable_obligation_summary} {sc.verbatim_excerpt}".lower()
+    cat = sc.constraint_category
+
+    # 1. Trade Routing
+    if cat in {
+        ConstraintCategory.TREE_VEGETATION_PROTECTION,
+        ConstraintCategory.CROP_OR_TIMBER_COMPENSATION,
+    }:
+        trade = ConstructionTrade.CLEARING_VEGETATION
+    elif cat in {
+        ConstraintCategory.ACCESS_ROAD_GATE_PROTOCOL,
+        ConstraintCategory.GATES_FENCING_OR_LIVESTOCK,
+        ConstraintCategory.ACCESS_ROAD_OR_PARCEL_RESTRICTION,
+        ConstraintCategory.LIVESTOCK_AGRICULTURE,
+    }:
+        trade = ConstructionTrade.ACCESS_FENCING_GATES
+    elif cat == ConstraintCategory.DRAINAGE_OR_SOIL_RESTORATION:
+        trade = ConstructionTrade.CIVIL_GRADING_SOIL
+    elif cat == ConstraintCategory.NOISE_OR_SHADOW_FLICKER:
+        trade = ConstructionTrade.CRANE_TRANSPORT_ERECTION
+    elif cat in {
+        ConstraintCategory.BLASTING_OR_EXCAVATION,
+        ConstraintCategory.STRUCTURE_BARN_WELL_SETBACK,
+    }:
+        if re.search(r"\b(crane|turbine|rig|heavy haul|overhead|laydown)\b", combined_text):
+            trade = ConstructionTrade.CRANE_TRANSPORT_ERECTION
+        else:
+            trade = ConstructionTrade.BLASTING_TRENCHING_FOUNDATION
+    else:
+        if re.search(r"\b(tree|trees|oak|pecan|timber|grove|orchard|brush|clearing)\b", combined_text):
+            trade = ConstructionTrade.CLEARING_VEGETATION
+        elif re.search(r"\b(drainage|tile|tiles|topsoil|erosion|compaction|re-grade|grading)\b", combined_text):
+            trade = ConstructionTrade.CIVIL_GRADING_SOIL
+        elif re.search(r"\b(gate|gates|fence|fencing|cattle|livestock|pasture|culvert|haul road|speed limit)\b", combined_text):
+            trade = ConstructionTrade.ACCESS_FENCING_GATES
+        elif re.search(r"\b(crane|turbine|rig|heavy haul|overhead|laydown)\b", combined_text):
+            trade = ConstructionTrade.CRANE_TRANSPORT_ERECTION
+        elif re.search(
+            r"\b(blast|blasting|trench|trenching|excavat\w*|well|wells|barn|shed|residence|homestead|septic|foundation|setback|buffer)\b",
+            combined_text,
+        ):
+            trade = ConstructionTrade.BLASTING_TRENCHING_FOUNDATION
+        else:
+            trade = ConstructionTrade.GENERAL_SITE_OPERATIONS
+
+    # 2. Severity Classification
+    metric_text = (sc.quantitative_metric or "").strip()
+    temporal_text = (sc.temporal_restriction or "").strip()
+    penalty_text = (sc.penalty_or_consequence or "").strip()
+
+    has_distance_metric = bool(
+        metric_text and re.search(r"\b(feet|foot|ft|meter|meters|yard|yards|acre|acres)\b", metric_text.lower())
+    )
+    has_penalty = bool(penalty_text)
+    has_temporal = bool(temporal_text)
+
+    if (cat in _SEASONAL_CATEGORIES and not has_distance_metric) or (
+        has_temporal and not has_penalty and not has_distance_metric and cat not in _RED_ZONE_CATEGORIES
+    ):
+        severity = DNDSeverityLevel.SEASONAL_BLACKOUT
+    elif (
+        has_penalty
+        or cat in _RED_ZONE_CATEGORIES
+        or (
+            has_distance_metric
+            and bool(re.search(r"(setback|buffer|do not disturb|no-build|no entry|prohibited|within)", combined_text))
+        )
+        or bool(
+            re.search(
+                r"(do not disturb|shall not cut|shall not clear|no-build|no entry|blasting prohibited)",
+                combined_text,
+            )
+        )
+    ):
+        severity = DNDSeverityLevel.RED_ZONE_NO_GO
+    else:
+        severity = DNDSeverityLevel.MANDATORY_PROTOCOL
+
+    # 3. Field Directive Title Synthesis
+    if severity == DNDSeverityLevel.RED_ZONE_NO_GO:
+        prefix = "DO NOT DISTURB"
+        qualifier = metric_text or temporal_text
+    elif severity == DNDSeverityLevel.SEASONAL_BLACKOUT:
+        prefix = "SEASONAL BLACKOUT"
+        qualifier = temporal_text or metric_text
+    else:
+        prefix = "MANDATORY PROTOCOL"
+        qualifier = metric_text or temporal_text
+
+    target = (sc.target_asset_or_area or "SITE CONSTRAINT").strip().upper()
+    if qualifier:
+        directive_title = f"{prefix}: {target} ({qualifier.upper()})"
+    else:
+        directive_title = f"{prefix}: {target}"
+
+    return trade, severity, directive_title
+
+
+def build_dnd_checklist_item(sc: SpecialConditionRow) -> DNDChecklistItem:
+    """Synthesize a DNDChecklistItem dynamically from a SpecialConditionRow."""
+    trade, severity, directive_title = classify_dnd_condition(sc)
+    clearance = (
+        DNDDispatchClearance.CLEARED_FOR_DISPATCH
+        if sc.hitl_status == HITLStatus.APPROVED_BY_HUMAN
+        else DNDDispatchClearance.HOLD_VERIFY_WITH_LAND_AGENT
+    )
+    return DNDChecklistItem(
+        condition_id=sc.condition_id,
+        document_id=sc.document_id,
+        project_id=sc.project_id or "prj_cedar_lantern_wind",
+        landowner_id=sc.landowner_id or "lnd_unassigned",
+        node_id=sc.node_id,
+        canonical_path=sc.canonical_path,
+        constraint_category=sc.constraint_category,
+        construction_trade=trade,
+        severity_level=severity,
+        dispatch_clearance=clearance,
+        field_directive_title=directive_title,
+        target_asset_or_area=sc.target_asset_or_area,
+        quantitative_metric=sc.quantitative_metric,
+        temporal_restriction=sc.temporal_restriction,
+        penalty_or_consequence=sc.penalty_or_consequence,
+        actionable_obligation_summary=sc.actionable_obligation_summary,
+        verbatim_excerpt=sc.verbatim_excerpt,
+        page_number=sc.page_number,
+        hitl_status=sc.hitl_status,
+        reviewed_by=sc.reviewed_by,
+    )
 
 
 CLAUSE_CSV_COLUMNS: list[str] = list(ClauseRow.model_fields.keys())
 DEFINED_TERM_CSV_COLUMNS: list[str] = list(DefinedTermRow.model_fields.keys())
 EXHIBIT_CATALOG_CSV_COLUMNS: list[str] = list(ExhibitCatalogRow.model_fields.keys())
+SPECIAL_CONDITION_CSV_COLUMNS: list[str] = list(SpecialConditionRow.model_fields.keys())
 DOCUMENT_REGISTRY_COLUMNS: list[str] = list(DocumentRegistryRow.model_fields.keys())
+PROJECT_CSV_COLUMNS: list[str] = list(ProjectRow.model_fields.keys())
+LANDOWNER_CSV_COLUMNS: list[str] = list(LandownerRow.model_fields.keys())
+DND_SIGNOFF_CSV_COLUMNS: list[str] = list(DNDChecklistSignoffRow.model_fields.keys())
+
+

@@ -5,10 +5,11 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import re
 import sys
 from pathlib import Path
 
-from fastapi import FastAPI, File, HTTPException, Request, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, Response
 from pydantic import BaseModel
@@ -17,13 +18,18 @@ from contract_parser.config import PipelineConfig
 from contract_parser.gemini_parser import (
     ContractExtractorProtocol,
     GeminiContractParser,
+    make_landowner_id as _make_landowner_id,
 )
 from contract_parser.schemas import (
     ClauseReviewRequest,
+    CreateDNDSignoffRequest,
+    CreateProjectRequest,
     DocumentRegistryRow,
+    EnergyTechnology,
     HITLStatus,
     IngestionStatus,
     ParsedContractBundle,
+    ProjectRow,
     utc_now_iso,
 )
 from contract_parser.storage import ContractStorageService, compute_document_id
@@ -35,20 +41,30 @@ class BatchIngestRequest(BaseModel):
     """Payload for POST /api/v1/documents/ingest-gcs."""
 
     gcs_uri_or_prefix: str = "incoming/"
+    project_id: str = "prj_cedar_lantern_wind"
+    landowner_id: str | None = None
 
 
 def ingest_pdf_bytes(
     *,
     pdf_bytes: bytes,
     filename: str,
+    project_id: str = "prj_cedar_lantern_wind",
+    landowner_id: str | None = None,
     config: PipelineConfig | None = None,
     storage_service: ContractStorageService | None = None,
     extractor: ContractExtractorProtocol | None = None,
 ) -> ParsedContractBundle:
-    """Execute the end-to-end ingestion, Gemini extraction, BigQuery append, and CSV export pipeline."""
+    """Execute the end-to-end ingestion, Gemini extraction, portfolio binding, BigQuery append, and CSV export pipeline."""
     cfg = config or PipelineConfig()
     store = storage_service or ContractStorageService(cfg)
     parser = extractor or GeminiContractParser(cfg)
+
+    store.ensure_portfolio_seed()
+    try:
+        project = store.get_project(project_id)
+    except KeyError:
+        project = store.get_project("prj_cedar_lantern_wind")
 
     doc_id = compute_document_id(pdf_bytes)
     doc_id, gcs_pdf_uri = store.archive_raw_pdf(
@@ -67,18 +83,42 @@ def ingest_pdf_bytes(
         contracting_parties_json="[]",
         effective_date=None,
         flagged_node_count=0,
+        special_conditions_count=0,
         ingestion_status=IngestionStatus.PROCESSING,
         error_message=None,
         ingested_at=ingested_ts,
         updated_at=ingested_ts,
+        project_id=project.project_id,
+        landowner_id=landowner_id or "lnd_unassigned",
+        energy_technology=project.energy_technology,
     )
     store.append_document_row(initial_doc)
 
     try:
-        extraction = parser.extract(
-            document_id=doc_id,
-            gcs_pdf_uri=gcs_pdf_uri,
-            pdf_bytes=pdf_bytes,
+        try:
+            extraction = parser.extract(
+                document_id=doc_id,
+                gcs_pdf_uri=gcs_pdf_uri,
+                pdf_bytes=pdf_bytes,
+                project_id=project.project_id,
+                landowner_id=landowner_id,
+            )
+        except TypeError:
+            extraction = parser.extract(
+                document_id=doc_id,
+                gcs_pdf_uri=gcs_pdf_uri,
+                pdf_bytes=pdf_bytes,
+            )
+
+        grantor_name = (
+            extraction.grantor_landowner_name
+            or Path(filename).stem.replace("_", " ")
+        )
+        grantee_name = extraction.grantee_entity_name
+        resolved_landowner_id = (
+            landowner_id
+            if (landowner_id and landowner_id != "lnd_unassigned")
+            else _make_landowner_id(project.project_id, grantor_name)
         )
         flagged_count = sum(
             1
@@ -100,18 +140,39 @@ def ingest_pdf_bytes(
             contracting_parties_json=extraction.contracting_parties_json or "[]",
             effective_date=extraction.effective_date,
             flagged_node_count=flagged_count,
+            special_conditions_count=len(extraction.special_conditions),
             ingestion_status=final_status,
             error_message=None,
             ingested_at=ingested_ts,
             updated_at=utc_now_iso(),
+            project_id=project.project_id,
+            landowner_id=resolved_landowner_id,
+            energy_technology=project.energy_technology,
+            grantor_landowner_name=grantor_name,
+            grantee_entity_name=grantee_name,
         )
+        stamped_scs = [
+            sc.model_copy(
+                update={
+                    "project_id": project.project_id,
+                    "landowner_id": resolved_landowner_id,
+                }
+            )
+            for sc in extraction.special_conditions
+        ]
         bundle = ParsedContractBundle(
             document=completed_doc,
             clauses=extraction.clauses,
             defined_terms=extraction.defined_terms,
             exhibits_catalog=extraction.exhibits_catalog,
+            special_conditions=stamped_scs,
         )
         store.persist_bundle(bundle)
+        bundle, _, _ = store.bind_document_to_portfolio(
+            bundle,
+            project_id=project.project_id,
+            landowner_id=resolved_landowner_id,
+        )
         return bundle
     except Exception as exc:
         failed_doc = initial_doc.model_copy(
@@ -127,6 +188,8 @@ def ingest_pdf_bytes(
 
 def ingest_contract(
     pdf_path_or_uri: str,
+    project_id: str = "prj_cedar_lantern_wind",
+    landowner_id: str | None = None,
     config: PipelineConfig | None = None,
     storage_service: ContractStorageService | None = None,
     extractor: ContractExtractorProtocol | None = None,
@@ -145,6 +208,8 @@ def ingest_contract(
     return ingest_pdf_bytes(
         pdf_bytes=pdf_bytes,
         filename=filename,
+        project_id=project_id,
+        landowner_id=landowner_id,
         config=cfg,
         storage_service=store,
         extractor=extractor,
@@ -162,9 +227,9 @@ def create_app(
     parser = extractor or GeminiContractParser(cfg)
 
     fastapi_app = FastAPI(
-        title="Hierarchical Contract Parsing & Obligation Intelligence",
-        version="0.1.0",
-        description="Gemini-First Multimodal Contract Hierarchy Parser, Append-Only BigQuery Store, and pdf.js HITL Review UI",
+        title="Hierarchical Contract Parsing & Portfolio Obligation Intelligence",
+        version="0.4.0",
+        description="Gemini-First Multimodal Contract Hierarchy Parser, 8-Table Portfolio & Field Crew DND Store, and pdf.js HITL Review UI",
     )
     fastapi_app.add_middleware(
         CORSMiddleware,
@@ -184,8 +249,92 @@ def create_app(
         index_file = static_dir / "index.html"
         return HTMLResponse(content=index_file.read_text(encoding="utf-8"))
 
+    @fastapi_app.get("/api/v1/projects")
+    async def list_projects_endpoint(
+        energy_technology: str | None = None,
+    ) -> dict[str, object]:
+        active_store: ContractStorageService = fastapi_app.state.storage
+        projects = active_store.list_projects(energy_technology=energy_technology)
+        return {
+            "projects": [p.model_dump(mode="json") for p in projects],
+            "count": len(projects),
+        }
+
+    @fastapi_app.post("/api/v1/projects")
+    async def create_project_endpoint(req: CreateProjectRequest) -> dict[str, object]:
+        active_store: ContractStorageService = fastapi_app.state.storage
+        slug = re.sub(r"[^a-z0-9]+", "_", req.project_name.lower()).strip("_")[:32]
+        pid = req.project_id or f"prj_{slug or 'custom'}"
+        now_iso = utc_now_iso()
+        proj = ProjectRow(
+            project_id=pid,
+            project_name=req.project_name,
+            energy_technology=req.energy_technology,
+            erp_project_code=req.erp_project_code,
+            state_province=req.state_province,
+            county=req.county,
+            target_capacity_mw=req.target_capacity_mw,
+            landowner_count=0,
+            document_count=0,
+            special_conditions_count=0,
+            flagged_node_count=0,
+            updated_at=now_iso,
+        )
+        active_store.upsert_project(proj)
+        dumped = proj.model_dump(mode="json")
+        return {**dumped, "project": dumped}
+
+    @fastapi_app.get("/api/v1/projects/{project_id}/landowners")
+    async def list_project_landowners_endpoint(project_id: str) -> dict[str, object]:
+        active_store: ContractStorageService = fastapi_app.state.storage
+        try:
+            proj = active_store.get_project(project_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        landowners = active_store.list_landowners(project_id=project_id)
+        return {
+            "project": proj.model_dump(mode="json"),
+            "landowners": [l.model_dump(mode="json") for l in landowners],
+            "count": len(landowners),
+        }
+
+    @fastapi_app.get("/api/v1/landowners")
+    async def list_landowners_endpoint(
+        project_id: str | None = None,
+    ) -> dict[str, object]:
+        active_store: ContractStorageService = fastapi_app.state.storage
+        landowners = active_store.list_landowners(project_id=project_id)
+        return {
+            "landowners": [l.model_dump(mode="json") for l in landowners],
+            "count": len(landowners),
+        }
+
+    @fastapi_app.get("/api/v1/portfolio/search")
+    async def search_portfolio_endpoint(
+        project_id: str | None = None,
+        landowner_id: str | None = None,
+        energy_technology: str | None = None,
+        constraint_category: str | None = None,
+        hitl_status: str | None = None,
+        q: str | None = None,
+    ) -> dict[str, object]:
+        active_store: ContractStorageService = fastapi_app.state.storage
+        return active_store.search_portfolio(
+            project_id=project_id,
+            landowner_id=landowner_id,
+            energy_technology=energy_technology,
+            constraint_category=constraint_category,
+            hitl_status=hitl_status,
+            q=q,
+        )
+
     @fastapi_app.post("/api/v1/documents/upload")
-    async def upload_document(file: UploadFile = File(...)) -> dict[str, object]:
+    @fastapi_app.post("/api/v1/documents:ingest")
+    async def upload_document(
+        file: UploadFile = File(...),
+        project_id: str = Form("prj_cedar_lantern_wind"),
+        landowner_id: str | None = Form(None),
+    ) -> dict[str, object]:
         if not file.filename or not file.filename.lower().endswith(".pdf"):
             raise HTTPException(status_code=400, detail="Only .pdf files are supported")
         pdf_bytes = await file.read()
@@ -194,6 +343,8 @@ def create_app(
         bundle = ingest_pdf_bytes(
             pdf_bytes=pdf_bytes,
             filename=file.filename,
+            project_id=project_id,
+            landowner_id=landowner_id,
             config=fastapi_app.state.config,
             storage_service=fastapi_app.state.storage,
             extractor=fastapi_app.state.extractor,
@@ -217,6 +368,8 @@ def create_app(
         for uri in uris:
             bundle = ingest_contract(
                 pdf_path_or_uri=uri,
+                project_id=req.project_id,
+                landowner_id=req.landowner_id,
                 config=fastapi_app.state.config,
                 storage_service=active_store,
                 extractor=fastapi_app.state.extractor,
@@ -225,9 +378,18 @@ def create_app(
         return {"ingested_count": len(ingested_docs), "documents": ingested_docs}
 
     @fastapi_app.get("/api/v1/documents")
-    async def list_documents() -> dict[str, object]:
+    async def list_documents(
+        project_id: str | None = None,
+        landowner_id: str | None = None,
+        energy_technology: str | None = None,
+    ) -> dict[str, object]:
         active_store: ContractStorageService = fastapi_app.state.storage
-        docs = active_store.list_documents()
+        active_store.ensure_portfolio_seed()
+        docs = active_store.list_documents(
+            project_id=project_id,
+            landowner_id=landowner_id,
+            energy_technology=energy_technology,
+        )
         return {
             "documents": [d.model_dump(mode="json") for d in docs],
             "count": len(docs),
@@ -299,12 +461,57 @@ def create_app(
             updated_clause, updated_doc = active_store.review_clause(
                 document_id=document_id, node_id=node_id, review=review
             )
+            sqlite_bundle = active_store._get_bundle_from_sqlite(document_id)
+            node_conditions = (
+                [
+                    sc.model_dump(mode="json")
+                    for sc in sqlite_bundle.special_conditions
+                    if sc.node_id == node_id
+                ]
+                if sqlite_bundle is not None
+                else []
+            )
         except KeyError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
         return {
             "clause": updated_clause.model_dump(mode="json"),
             "document": updated_doc.model_dump(mode="json"),
+            "special_conditions": node_conditions,
         }
+
+    @fastapi_app.get("/api/v1/documents/{document_id}/dnd-checklist")
+    async def get_document_dnd_checklist_endpoint(
+        document_id: str,
+        construction_trade: str | None = None,
+        severity_level: str | None = None,
+    ) -> dict[str, object]:
+        active_store: ContractStorageService = fastapi_app.state.storage
+        try:
+            checklist = active_store.get_contract_dnd_checklist(
+                document_id=document_id,
+                construction_trade=construction_trade,
+                severity_level=severity_level,
+            )
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        return checklist.model_dump(mode="json")
+
+    @fastapi_app.post("/api/v1/documents/{document_id}/dnd-checklist:signoff")
+    async def record_document_dnd_signoff_endpoint(
+        document_id: str,
+        req: CreateDNDSignoffRequest,
+    ) -> dict[str, object]:
+        active_store: ContractStorageService = fastapi_app.state.storage
+        try:
+            checklist = active_store.record_dnd_checklist_signoff(
+                document_id=document_id,
+                req=req,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        return checklist.model_dump(mode="json")
 
     @fastapi_app.get("/api/v1/documents/{document_id}/export/{csv_name}")
     async def export_csv_endpoint(document_id: str, csv_name: str) -> Response:
@@ -337,12 +544,22 @@ def cli_main(argv: list[str] | None = None) -> int:
     )
     parser = argparse.ArgumentParser(
         prog="contract-parser",
-        description="Gemini-First Hierarchical Contract Parsing & Context Preservation CLI",
+        description="Gemini-First Hierarchical Contract Parsing & Portfolio Intelligence CLI",
     )
     sub = parser.add_subparsers(dest="command", required=True)
 
     ingest_cmd = sub.add_parser("ingest", help="Ingest a PDF from local path or gs:// URI")
     ingest_cmd.add_argument("pdf_path_or_uri", help="Local PDF path or gs:// URI")
+    ingest_cmd.add_argument(
+        "--project-id",
+        default="prj_cedar_lantern_wind",
+        help="Target ERP Project ID (default: prj_cedar_lantern_wind)",
+    )
+    ingest_cmd.add_argument(
+        "--landowner-id",
+        default=None,
+        help="Optional QRM Landowner ID (auto-bound from PDF Grantor if omitted)",
+    )
     ingest_cmd.add_argument(
         "--output-dir",
         default=None,
@@ -360,13 +577,21 @@ def cli_main(argv: list[str] | None = None) -> int:
         store = ContractStorageService(cfg)
         bundle = ingest_contract(
             pdf_path_or_uri=args.pdf_path_or_uri,
+            project_id=args.project_id,
+            landowner_id=args.landowner_id,
             config=cfg,
             storage_service=store,
         )
         doc_export_dir = store.local_exports_dir / bundle.document.document_id
         exported = {
             name: str(doc_export_dir / name)
-            for name in ("clauses.csv", "defined_terms.csv", "exhibits_catalog.csv")
+            for name in (
+                "clauses.csv",
+                "defined_terms.csv",
+                "exhibits_catalog.csv",
+                "special_conditions.csv",
+                "dnd_checklist_signoffs.csv",
+            )
         }
         if args.output_dir:
             out_dir = Path(args.output_dir)
@@ -376,6 +601,11 @@ def cli_main(argv: list[str] | None = None) -> int:
         summary = {
             "document_id": bundle.document.document_id,
             "filename": bundle.document.filename,
+            "project_id": bundle.document.project_id,
+            "landowner_id": bundle.document.landowner_id,
+            "energy_technology": bundle.document.energy_technology.value,
+            "grantor_landowner_name": bundle.document.grantor_landowner_name,
+            "grantee_entity_name": bundle.document.grantee_entity_name,
             "gcs_pdf_uri": bundle.document.gcs_pdf_uri,
             "gcs_export_prefix": bundle.document.gcs_export_prefix,
             "page_count": bundle.document.page_count,
@@ -383,6 +613,7 @@ def cli_main(argv: list[str] | None = None) -> int:
             "clauses_count": len(bundle.clauses),
             "defined_terms_count": len(bundle.defined_terms),
             "exhibits_count": len(bundle.exhibits_catalog),
+            "special_conditions_count": len(bundle.special_conditions),
             "flagged_node_count": bundle.document.flagged_node_count,
             "ingestion_status": bundle.document.ingestion_status.value,
             "exported_csvs": exported,

@@ -10,17 +10,30 @@ from fastapi.testclient import TestClient
 
 from contract_parser.app import create_app, ingest_contract
 from contract_parser.config import PipelineConfig
-from contract_parser.gemini_parser import normalize_and_enrich_extraction
+from contract_parser.gemini_parser import (
+    _make_landowner_id,
+    normalize_and_enrich_extraction,
+)
 from contract_parser.schemas import (
     CLAUSE_CSV_COLUMNS,
     DEFINED_TERM_CSV_COLUMNS,
+    DND_SIGNOFF_CSV_COLUMNS,
     DOCUMENT_REGISTRY_COLUMNS,
     EXHIBIT_CATALOG_CSV_COLUMNS,
+    LANDOWNER_CSV_COLUMNS,
+    PROJECT_CSV_COLUMNS,
+    SPECIAL_CONDITION_CSV_COLUMNS,
     ClauseReviewRequest,
     ClauseRow,
+    ConstraintCategory,
+    ConstructionTrade,
     DefinedTermRow,
     DefinitionType,
+    DNDDispatchClearance,
+    DNDDispatchReadiness,
+    DNDSeverityLevel,
     DocumentZone,
+    EnergyTechnology,
     ExhibitCatalogRow,
     ExhibitModality,
     FlagCode,
@@ -28,12 +41,19 @@ from contract_parser.schemas import (
     HITLStatus,
     IngestionStatus,
     NumberingScheme,
+    SpecialConditionRow,
+    build_dnd_checklist_item,
+    classify_dnd_condition,
 )
 from contract_parser.storage import (
     BQ_CLAUSES_SCHEMA,
     BQ_DEFINED_TERMS_SCHEMA,
+    BQ_DND_SIGNOFFS_SCHEMA,
     BQ_DOCUMENTS_SCHEMA,
     BQ_EXHIBITS_CATALOG_SCHEMA,
+    BQ_LANDOWNERS_SCHEMA,
+    BQ_PROJECTS_SCHEMA,
+    BQ_SPECIAL_CONDITIONS_SCHEMA,
     ContractStorageService,
 )
 
@@ -513,16 +533,26 @@ class HermeticFixtureExtractor:
 
 
 def test_schema_parity_and_config_defaults() -> None:
-    """Verify exact 4-table column counts, BigQuery schema parity, and PipelineConfig defaults (SA-1..SA-4)."""
-    assert len(CLAUSE_CSV_COLUMNS) == 30
+    """Verify exact 8-table column counts, BigQuery schema parity, and PipelineConfig defaults (SA-1..SA-5, CR-1, CR-2, CR-3)."""
+    assert len(PROJECT_CSV_COLUMNS) == 12
+    assert len(LANDOWNER_CSV_COLUMNS) == 10
+    assert len(CLAUSE_CSV_COLUMNS) == 32
     assert len(DEFINED_TERM_CSV_COLUMNS) == 8
     assert len(EXHIBIT_CATALOG_CSV_COLUMNS) == 10
-    assert len(DOCUMENT_REGISTRY_COLUMNS) == 12
+    assert len(DOCUMENT_REGISTRY_COLUMNS) == 18
+    assert len(SPECIAL_CONDITION_CSV_COLUMNS) == 18
+    assert len(DND_SIGNOFF_CSV_COLUMNS) == 12
 
+    assert [f.name for f in BQ_PROJECTS_SCHEMA] == PROJECT_CSV_COLUMNS
+    assert [f.name for f in BQ_LANDOWNERS_SCHEMA] == LANDOWNER_CSV_COLUMNS
     assert [f.name for f in BQ_CLAUSES_SCHEMA] == CLAUSE_CSV_COLUMNS
     assert [f.name for f in BQ_DEFINED_TERMS_SCHEMA] == DEFINED_TERM_CSV_COLUMNS
     assert [f.name for f in BQ_EXHIBITS_CATALOG_SCHEMA] == EXHIBIT_CATALOG_CSV_COLUMNS
-    assert [f.name for f in BQ_DOCUMENTS_SCHEMA] == DOCUMENT_REGISTRY_COLUMNS
+    assert set(f.name for f in BQ_DOCUMENTS_SCHEMA) == set(DOCUMENT_REGISTRY_COLUMNS)
+    assert len(BQ_DOCUMENTS_SCHEMA) == len(DOCUMENT_REGISTRY_COLUMNS)
+    assert set(f.name for f in BQ_SPECIAL_CONDITIONS_SCHEMA) == set(SPECIAL_CONDITION_CSV_COLUMNS)
+    assert len(BQ_SPECIAL_CONDITIONS_SCHEMA) == len(SPECIAL_CONDITION_CSV_COLUMNS)
+    assert [f.name for f in BQ_DND_SIGNOFFS_SCHEMA] == DND_SIGNOFF_CSV_COLUMNS
 
     cfg = PipelineConfig()
     assert cfg.google_cloud_project == "pr-tftest"
@@ -639,7 +669,7 @@ def test_deep_6_tier_hierarchy_and_context_normalization() -> None:
 
 
 def test_benchmark_sample_agreement_invariants() -> None:
-    """Verify all 9 benchmark rows, 16 defined terms, and 4 exhibits on Synthetic_Accommodation_Agreement.pdf (IT-1, IT-2)."""
+    """Verify all 9 benchmark rows, 16 defined terms, 4 exhibits, and 0 false-positive physical constraints on Synthetic_Accommodation_Agreement.pdf (IT-1, IT-2, CR-1)."""
     extracted = normalize_and_enrich_extraction(
         build_synthetic_accommodation_fixture(),
         document_id="doc_bench",
@@ -681,6 +711,8 @@ def test_benchmark_sample_agreement_invariants() -> None:
     assert "except to the extent such Liabilities arise from the negligence or willful misconduct of Blue Meridian." in b4i.reconstructed_context_text
     assert FlagCode.AMBIGUOUS_HIERARCHY_MARKER.value in b4i.hitl_flag_reasons
     assert FlagCode.SCOPE_CARVEOUT_DETECTED.value in b4i.hitl_flag_reasons
+    assert FlagCode.LANDOWNER_SPECIAL_CONDITION.value not in b4i.hitl_flag_reasons
+    assert b4i.has_special_condition is False
 
     # 6. BODY.6 (Cross-page stitched clause across pages 2 and 3)
     b6 = by_id["BODY.6"]
@@ -692,7 +724,7 @@ def test_benchmark_sample_agreement_invariants() -> None:
     assert sig1.hitl_status == HITLStatus.PLACEHOLDER_FOR_REVIEW
     assert sig1.hitl_flag_reasons == FlagCode.DEFERRED_MODALITY_PLACEHOLDER.value
 
-    # 8. EXHIBIT_A.PARCEL_4.EXCEPT_1 (Depth 3 block-header carve-out synthesis)
+    # 8. EXHIBIT_A.PARCEL_4.EXCEPT_1 (Depth 3 block-header carve-out synthesis — legal carve-out, NOT physical site constraint)
     ex_a_carve = by_id["EXHIBIT_A.PARCEL_4.EXCEPT_1"]
     assert ex_a_carve.depth == 3
     assert ex_a_carve.level_1_label == "Exhibit A"
@@ -700,6 +732,8 @@ def test_benchmark_sample_agreement_invariants() -> None:
     assert ex_a_carve.level_3_label == "LESS_AND_EXCEPT"
     assert ex_a_carve.reconstructed_context_text.startswith("Excluded from Exhibit A, Parcel 4:")
     assert FlagCode.SCOPE_CARVEOUT_DETECTED.value in ex_a_carve.hitl_flag_reasons
+    assert FlagCode.LANDOWNER_SPECIAL_CONDITION.value not in ex_a_carve.hitl_flag_reasons
+    assert ex_a_carve.has_special_condition is False
 
     # 9. EXHIBIT_D.STUB (CAD drawing placeholder on Pages 11-12)
     ex_d = by_id["EXHIBIT_D.STUB"]
@@ -707,7 +741,8 @@ def test_benchmark_sample_agreement_invariants() -> None:
     assert ex_d.hitl_status == HITLStatus.PLACEHOLDER_FOR_REVIEW
     assert ex_d.hitl_flag_reasons == FlagCode.DEFERRED_MODALITY_PLACEHOLDER.value
 
-    # Verify longest-match Defined Term linking (RECITALS.2 uses 'Blue Meridian Facilities' and 'Blue Meridian Easements')
+    # Verify 0 false-positive physical constraints across the entire standard Accommodation Agreement
+    assert len(extracted.special_conditions) == 0
     assert len(extracted.defined_terms) == 16
     assert len(extracted.exhibits_catalog) == 4
 
@@ -723,11 +758,13 @@ def test_storage_append_only_deduplication_and_fastapi_endpoints(tmp_path: Path)
     extractor = HermeticFixtureExtractor()
     client = TestClient(create_app(config=cfg, storage_service=store, extractor=extractor))
 
-    # 1. GET / serves split-screen pdf.js HTML UI
+    # 1. GET / serves split-screen pdf.js HTML UI with Site Constraints tab
     html_res = client.get("/")
     assert html_res.status_code == 200
     assert "pdf.min.js" in html_res.text
     assert "Show Full Reconstructed Context" in html_res.text
+    assert "Site Constraints" in html_res.text
+    assert "special_conditions.csv" in html_res.text
 
     # 2. POST /api/v1/documents/upload
     pdf_bytes = SAMPLE_PDF_PATH.read_bytes() if SAMPLE_PDF_PATH.exists() else b"%PDF-1.4 synthetic contract test"
@@ -787,8 +824,13 @@ def test_storage_append_only_deduplication_and_fastapi_endpoints(tmp_path: Path)
     assert b4i_latest.hitl_status == HITLStatus.APPROVED_BY_HUMAN
     assert b4i_latest.reviewed_by == "prasanna_reviewer"
 
-    # 5. Verify utf-8-sig CSV exports & load_bundle_from_csv round-trip
-    for csv_name in ("clauses.csv", "defined_terms.csv", "exhibits_catalog.csv"):
+    # 5. Verify utf-8-sig CSV exports (all 4 CSV files) & load_bundle_from_csv round-trip
+    for csv_name in (
+        "clauses.csv",
+        "defined_terms.csv",
+        "exhibits_catalog.csv",
+        "special_conditions.csv",
+    ):
         csv_res = client.get(f"/api/v1/documents/{doc_id}/export/{csv_name}")
         assert csv_res.status_code == 200
         assert csv_res.content.startswith(b"\xef\xbb\xbf")  # UTF-8 BOM (utf-8-sig)
@@ -799,6 +841,205 @@ def test_storage_append_only_deduplication_and_fastapi_endpoints(tmp_path: Path)
     assert len(reloaded.clauses) == len(dedup_bundle.clauses)
     assert len(reloaded.defined_terms) == len(dedup_bundle.defined_terms)
     assert len(reloaded.exhibits_catalog) == len(dedup_bundle.exhibits_catalog)
+    assert len(reloaded.special_conditions) == len(dedup_bundle.special_conditions)
+
+
+def test_cr1_landowner_special_conditions_multi_constraint_and_hitl_cascade(tmp_path: Path) -> None:
+    """Verify CR-1 multi-constraint decomposition, sandwich leaf deduplication, deterministic 2-signal fallback, and cascading HITL review approval."""
+    clauses = [
+        ClauseRow(
+            node_id="BODY.7",
+            parent_node_id=None,
+            sibling_order=7,
+            document_zone=DocumentZone.BODY,
+            canonical_path="BODY.7",
+            depth=1,
+            clause_label="7",
+            numbering_scheme=NumberingScheme.INTEGER,
+            clause_title="Special Conditions and Site Restrictions",
+            is_inline_clause=False,
+            preamble_text="Grantee shall comply with the following landowner site restrictions:",
+            verbatim_text="7. Special Conditions and Site Restrictions. Grantee shall comply with the following landowner site restrictions: (a) Grantee shall not cut or trim any pecan or oak trees in the Pecan Grove (subject to a $5,000 per tree liquidated damages penalty), and no construction or grading shall occur during deer hunting season from November 15 through December 1.",
+            reconstructed_context_text="7. Special Conditions and Site Restrictions.",
+            page_start=4,
+            page_end=4,
+        ),
+        ClauseRow(
+            node_id="BODY.7.a",
+            parent_node_id="BODY.7",
+            sibling_order=1,
+            document_zone=DocumentZone.BODY,
+            canonical_path="BODY.7.a",
+            depth=2,
+            clause_label="(a)",
+            numbering_scheme=NumberingScheme.ALPHA_LOWER,
+            is_inline_clause=True,
+            verbatim_text="(a) Grantee shall not cut or trim any pecan or oak trees in the Pecan Grove (subject to a $5,000 per tree liquidated damages penalty), and no construction or grading shall occur during deer hunting season from November 15 through December 1.",
+            reconstructed_context_text="",
+            page_start=4,
+            page_end=4,
+        ),
+        ClauseRow(
+            node_id="BODY.9",
+            parent_node_id=None,
+            sibling_order=9,
+            document_zone=DocumentZone.BODY,
+            canonical_path="BODY.9",
+            depth=1,
+            clause_label="9",
+            numbering_scheme=NumberingScheme.INTEGER,
+            clause_title="Water Well Setback and Gate Protocol",
+            is_inline_clause=False,
+            verbatim_text="9. Water Well Setback and Gate Protocol. Grantee shall not disturb or clear within 250 feet of the homestead water well or barn, and all cattle gates must be kept closed and locked.",
+            reconstructed_context_text="9. Water Well Setback and Gate Protocol. Grantee shall not disturb or clear within 250 feet of the homestead water well or barn, and all cattle gates must be kept closed and locked.",
+            page_start=4,
+            page_end=4,
+        ),
+    ]
+
+    # Simulate Gemini returning:
+    # 1. A duplicate condition on parent BODY.7 (which must be deduplicated in favor of leaf BODY.7.a)
+    # 2. Two distinct SpecialConditionRow items on leaf BODY.7.a (tree protection + hunting blackout)
+    # 3. No SpecialConditionRow on BODY.9 (so the deterministic 2-signal fallback regex catches it)
+    raw_special_conditions = [
+        SpecialConditionRow(
+            node_id="BODY.7",
+            constraint_category=ConstraintCategory.TREE_VEGETATION_PROTECTION,
+            target_asset_or_area="pecan or oak trees in the Pecan Grove",
+            actionable_obligation_summary="Do not cut or trim any pecan or oak trees in the Pecan Grove.",
+            quantitative_metric=None,
+            temporal_restriction=None,
+            penalty_or_consequence="$5,000 per tree",
+            verbatim_excerpt="Grantee shall not cut or trim any pecan or oak trees in the Pecan Grove (subject to a $5,000 per tree liquidated damages penalty)",
+            page_number=4,
+        ),
+        SpecialConditionRow(
+            node_id="BODY.7.a",
+            constraint_category=ConstraintCategory.TREE_VEGETATION_PROTECTION,
+            target_asset_or_area="pecan or oak trees in the Pecan Grove",
+            actionable_obligation_summary="Do not cut or trim any pecan or oak trees in the Pecan Grove.",
+            quantitative_metric=None,
+            temporal_restriction=None,
+            penalty_or_consequence="$5,000 per tree",
+            verbatim_excerpt="Grantee shall not cut or trim any pecan or oak trees in the Pecan Grove (subject to a $5,000 per tree liquidated damages penalty)",
+            page_number=4,
+        ),
+        SpecialConditionRow(
+            node_id="BODY.7.a",
+            constraint_category=ConstraintCategory.TIMING_NOISE_HUNTING_BLACKOUT,
+            target_asset_or_area="construction or grading",
+            actionable_obligation_summary="No construction or grading during deer hunting season from November 15 through December 1.",
+            quantitative_metric=None,
+            temporal_restriction="November 15 through December 1",
+            penalty_or_consequence=None,
+            verbatim_excerpt="no construction or grading shall occur during deer hunting season from November 15 through December 1.",
+            page_number=4,
+        ),
+    ]
+
+    class CR1FixtureExtractor:
+        def extract(
+            self,
+            *,
+            document_id: str,
+            gcs_pdf_uri: str,
+            pdf_bytes: bytes | None = None,
+        ) -> GeminiContractExtraction:
+            del pdf_bytes
+            return normalize_and_enrich_extraction(
+                extraction=GeminiContractExtraction(
+                    page_count=4,
+                    clauses=clauses,
+                    special_conditions=raw_special_conditions,
+                ),
+                document_id=document_id,
+                gcs_pdf_uri=gcs_pdf_uri,
+            )
+
+    cfg = PipelineConfig(
+        local_data_dir=tmp_path / "cr1_data",
+        use_cloud_storage=False,
+        use_bigquery=False,
+    )
+    store = ContractStorageService(cfg)
+    client = TestClient(create_app(config=cfg, storage_service=store, extractor=CR1FixtureExtractor()))
+
+    up_res = client.post(
+        "/api/v1/documents/upload",
+        files={"file": ("Landowner_Special_Conditions_Lease.pdf", b"%PDF-1.4 cr1 test", "application/pdf")},
+    )
+    assert up_res.status_code == 200
+    bundle = up_res.json()
+    doc_id = bundle["document"]["document_id"]
+
+    # Parent BODY.7 duplicate was dropped; leaf BODY.7.a has 2 conditions + BODY.9 has 1 fallback condition = 3 total
+    assert bundle["document"]["special_conditions_count"] == 3
+    assert len(bundle["special_conditions"]) == 3
+
+    clauses_by_id = {c["node_id"]: c for c in bundle["clauses"]}
+    assert clauses_by_id["BODY.7"]["has_special_condition"] is False
+    assert clauses_by_id["BODY.7"]["special_condition_count"] == 0
+
+    assert clauses_by_id["BODY.7.a"]["has_special_condition"] is True
+    assert clauses_by_id["BODY.7.a"]["special_condition_count"] == 2
+    assert FlagCode.LANDOWNER_SPECIAL_CONDITION.value in clauses_by_id["BODY.7.a"]["hitl_flag_reasons"]
+    assert clauses_by_id["BODY.7.a"]["hitl_status"] == HITLStatus.FLAGGED_FOR_REVIEW.value
+
+    # Verify deterministic 2-signal fallback caught BODY.9
+    assert clauses_by_id["BODY.9"]["has_special_condition"] is True
+    assert clauses_by_id["BODY.9"]["special_condition_count"] == 1
+    assert FlagCode.LANDOWNER_SPECIAL_CONDITION.value in clauses_by_id["BODY.9"]["hitl_flag_reasons"]
+    assert clauses_by_id["BODY.9"]["hitl_status"] == HITLStatus.FLAGGED_FOR_REVIEW.value
+
+    sc_by_id = {sc["condition_id"]: sc for sc in bundle["special_conditions"]}
+    assert set(sc_by_id.keys()) == {"sc_BODY.7.a_1", "sc_BODY.7.a_2", "sc_BODY.9_1"}
+    assert sc_by_id["sc_BODY.7.a_1"]["penalty_or_consequence"] == "$5,000 per tree"
+    assert sc_by_id["sc_BODY.7.a_2"]["temporal_restriction"] == "November 15 through December 1"
+    assert sc_by_id["sc_BODY.9_1"]["quantitative_metric"] == "250 feet"
+    assert sc_by_id["sc_BODY.9_1"]["extraction_confidence"] == 0.75
+    assert (
+        sc_by_id["sc_BODY.9_1"]["constraint_category"]
+        == ConstraintCategory.STRUCTURE_BARN_WELL_SETBACK.value
+    )
+
+    # Verify cascading HITL approval when BODY.7.a is approved
+    patch_res = client.patch(
+        f"/api/v1/documents/{doc_id}/clauses/BODY.7.a",
+        json={
+            "hitl_status": "APPROVED_BY_HUMAN",
+            "reviewed_by": "land_agent_reviewer",
+            "review_notes": "Confirmed pecan grove penalty and hunting blackout dates",
+        },
+    )
+    assert patch_res.status_code == 200
+    patch_data = patch_res.json()
+    assert len(patch_data["special_conditions"]) == 2
+    for sc in patch_data["special_conditions"]:
+        assert sc["hitl_status"] == "APPROVED_BY_HUMAN"
+        assert sc["reviewed_by"] == "land_agent_reviewer"
+
+    # Verify SQLite append-only audit trail has 2 versions for sc_BODY.7.a_1 and sc_BODY.7.a_2
+    with sqlite3.connect(store.local_db_path) as conn:
+        sc_versions = conn.execute(
+            "SELECT COUNT(*) FROM special_conditions WHERE document_id = ? AND node_id = 'BODY.7.a'",
+            (doc_id,),
+        ).fetchone()[0]
+    assert sc_versions == 4  # 2 initial rows + 2 appended human-approved rows
+
+    # Verify special_conditions.csv export contains the approved rows and round-trips via load_bundle_from_csv
+    csv_res = client.get(f"/api/v1/documents/{doc_id}/export/special_conditions.csv")
+    assert csv_res.status_code == 200
+    csv_text = csv_res.content.decode("utf-8-sig")
+    assert "sc_BODY.7.a_1" in csv_text
+    assert "sc_BODY.7.a_2" in csv_text
+    assert "sc_BODY.9_1" in csv_text
+    assert "land_agent_reviewer" in csv_text
+
+    reloaded_cr1 = store.load_bundle_from_csv(
+        store.local_exports_dir / doc_id, store.get_bundle(doc_id).document
+    )
+    assert len(reloaded_cr1.special_conditions) == 3
+    assert reloaded_cr1.special_conditions[0].reviewed_by == "land_agent_reviewer"
 
 
 def test_broken_internal_reference_detection() -> None:
@@ -829,4 +1070,584 @@ def test_broken_internal_reference_detection() -> None:
     clause = extracted.clauses[0]
     assert FlagCode.BROKEN_INTERNAL_REFERENCE.value in clause.hitl_flag_reasons
     assert clause.hitl_status == HITLStatus.FLAGGED_FOR_REVIEW
+
+
+def test_cr2_project_portfolio_hierarchy_and_centralized_search(tmp_path: Path) -> None:
+    """Verify CR-2 5-technology project registry, automatic Grantor/QRM landowner entity binding, multi-parcel roll-up, and cross-portfolio search."""
+
+    class CR2PortfolioFixtureExtractor:
+        def extract(
+            self,
+            *,
+            document_id: str,
+            gcs_pdf_uri: str,
+            pdf_bytes: bytes | None = None,
+            project_id: str = "prj_cedar_lantern_wind",
+            landowner_id: str | None = None,
+        ) -> GeminiContractExtraction:
+            del pdf_bytes
+            clauses = [
+                ClauseRow(
+                    node_id="PREAMBLE.1",
+                    parent_node_id=None,
+                    sibling_order=1,
+                    document_zone=DocumentZone.PREAMBLE,
+                    canonical_path="PREAMBLE.1",
+                    depth=1,
+                    clause_label="Preamble",
+                    numbering_scheme=NumberingScheme.UNNUMBERED,
+                    verbatim_text='This Solar Lease Agreement is entered into by Arthur & Martha Pendelton ("Owner" or "Landowner") and Sun Ridge Solar Farm LLC ("Grantee").',
+                    reconstructed_context_text='This Solar Lease Agreement is entered into by Arthur & Martha Pendelton ("Owner" or "Landowner") and Sun Ridge Solar Farm LLC ("Grantee").',
+                    page_start=1,
+                    page_end=1,
+                ),
+                ClauseRow(
+                    node_id="BODY.8",
+                    parent_node_id=None,
+                    sibling_order=2,
+                    document_zone=DocumentZone.BODY,
+                    canonical_path="BODY.8",
+                    depth=1,
+                    clause_label="8",
+                    numbering_scheme=NumberingScheme.INTEGER,
+                    clause_title="Special Conditions",
+                    verbatim_text="8. Special Conditions. Grantee shall maintain a 300 feet setback from the homestead barn and shall not trim any heritage pecan trees.",
+                    reconstructed_context_text="8. Special Conditions. Grantee shall maintain a 300 feet setback from the homestead barn and shall not trim any heritage pecan trees.",
+                    page_start=2,
+                    page_end=2,
+                ),
+                ClauseRow(
+                    node_id="EXHIBIT_A.PARCEL_1",
+                    parent_node_id=None,
+                    sibling_order=3,
+                    document_zone=DocumentZone.EXHIBIT_A,
+                    canonical_path="EXHIBIT_A.PARCEL_1",
+                    depth=1,
+                    clause_label="Parcel 1",
+                    numbering_scheme=NumberingScheme.BLOCK_HEADER,
+                    clause_title="Tract 1 - North 160 Acres",
+                    verbatim_text="Parcel 1: North 160 Acres in Section 14.",
+                    reconstructed_context_text="Parcel 1: North 160 Acres in Section 14.",
+                    page_start=3,
+                    page_end=3,
+                ),
+                ClauseRow(
+                    node_id="EXHIBIT_A.PARCEL_2",
+                    parent_node_id=None,
+                    sibling_order=4,
+                    document_zone=DocumentZone.EXHIBIT_A,
+                    canonical_path="EXHIBIT_A.PARCEL_2",
+                    depth=1,
+                    clause_label="Parcel 2",
+                    numbering_scheme=NumberingScheme.BLOCK_HEADER,
+                    clause_title="Tract 2 - South 80 Acres",
+                    verbatim_text="Parcel 2: South 80 Acres in Section 15.",
+                    reconstructed_context_text="Parcel 2: South 80 Acres in Section 15.",
+                    page_start=3,
+                    page_end=3,
+                ),
+            ]
+            raw_scs = [
+                SpecialConditionRow(
+                    node_id="BODY.8",
+                    constraint_category=ConstraintCategory.SETBACK_OR_BUFFER,
+                    target_asset_or_area="homestead barn",
+                    actionable_obligation_summary="Maintain a 300 feet setback from the homestead barn.",
+                    quantitative_metric="300 feet",
+                    verbatim_excerpt="Grantee shall maintain a 300 feet setback from the homestead barn",
+                    page_number=2,
+                ),
+                SpecialConditionRow(
+                    node_id="BODY.8",
+                    constraint_category=ConstraintCategory.CROP_OR_TIMBER_COMPENSATION,
+                    target_asset_or_area="heritage pecan trees",
+                    actionable_obligation_summary="Do not trim any heritage pecan trees.",
+                    verbatim_excerpt="shall not trim any heritage pecan trees.",
+                    page_number=2,
+                ),
+            ]
+            return normalize_and_enrich_extraction(
+                extraction=GeminiContractExtraction(
+                    page_count=3,
+                    clauses=clauses,
+                    special_conditions=raw_scs,
+                ),
+                document_id=document_id,
+                gcs_pdf_uri=gcs_pdf_uri,
+                project_id=project_id,
+                landowner_id=landowner_id,
+            )
+
+    cfg = PipelineConfig(
+        local_data_dir=tmp_path / "cr2_data",
+        use_cloud_storage=False,
+        use_bigquery=False,
+    )
+    store = ContractStorageService(cfg)
+    client = TestClient(
+        create_app(config=cfg, storage_service=store, extractor=CR2PortfolioFixtureExtractor())
+    )
+
+    # 1. Verify all 5 default ERP projects across all 5 EnergyTechnology values are seeded
+    proj_res = client.get("/api/v1/projects")
+    assert proj_res.status_code == 200
+    projects = proj_res.json()["projects"]
+    assert len(projects) == 5
+    seeded_techs = {p["energy_technology"] for p in projects}
+    assert seeded_techs == {t.value for t in EnergyTechnology}
+
+    # 2. Verify POST /api/v1/projects creates a new project in the registry
+    create_res = client.post(
+        "/api/v1/projects",
+        json={
+            "project_name": "Prairie Wind Expansion II",
+            "erp_project_code": "ERP-WND-909",
+            "energy_technology": "ONSHORE_WIND",
+            "state_province": "IA",
+            "county": "Story",
+            "operating_llc_name": "Prairie Wind Expansion LLC",
+        },
+    )
+    assert create_res.status_code == 200
+    created_proj = create_res.json()
+    assert created_proj["project_id"] == "prj_prairie_wind_expansion_ii"
+    assert created_proj["erp_project_code"] == "ERP-WND-909"
+
+    # 3. Upload Contract #1 for Arthur & Martha Pendelton under prj_sun_ridge_solar (SOLAR)
+    up1 = client.post(
+        "/api/v1/documents/upload",
+        data={"project_id": "prj_sun_ridge_solar"},
+        files={"file": ("Pendelton_Solar_Lease_Tract_A.pdf", b"%PDF-1.4 solar contract 1", "application/pdf")},
+    )
+    assert up1.status_code == 200
+    b1 = up1.json()
+    assert b1["document"]["project_id"] == "prj_sun_ridge_solar"
+    assert b1["document"]["energy_technology"] == EnergyTechnology.SOLAR.value
+    assert b1["document"]["grantor_landowner_name"] == "Arthur & Martha Pendelton"
+    assert b1["document"]["grantee_entity_name"] == "Sun Ridge Solar Farm LLC"
+    expected_lnd_id = _make_landowner_id("prj_sun_ridge_solar", "Arthur & Martha Pendelton")
+    assert b1["document"]["landowner_id"] == expected_lnd_id
+
+    # 4. Upload Contract #2 (Amendment/Easement) for the same Grantor under prj_sun_ridge_solar
+    up2 = client.post(
+        "/api/v1/documents/upload",
+        data={"project_id": "prj_sun_ridge_solar"},
+        files={"file": ("Pendelton_Solar_Access_Easement_Tract_B.pdf", b"%PDF-1.4 solar contract 2", "application/pdf")},
+    )
+    assert up2.status_code == 200
+
+    # Verify Landowner roll-up (1 Landowner -> 2 Contracts, multi-parcel detected)
+    lnd_res = client.get("/api/v1/projects/prj_sun_ridge_solar/landowners")
+    assert lnd_res.status_code == 200
+    lnds = lnd_res.json()["landowners"]
+    assert len(lnds) == 1
+    pendelton = lnds[0]
+    assert pendelton["landowner_id"] == expected_lnd_id
+    assert pendelton["landowner_name"] == "Arthur & Martha Pendelton"
+    assert pendelton["contract_count"] == 2
+    assert pendelton["is_multi_parcel"] is True
+    assert "Parcel 1" in (pendelton["parcel_summary"] or "")
+    assert "Parcel 2" in (pendelton["parcel_summary"] or "")
+
+    # Verify Project roll-up counters
+    solar_proj = next(
+        p for p in client.get("/api/v1/projects").json()["projects"]
+        if p["project_id"] == "prj_sun_ridge_solar"
+    )
+    assert solar_proj["landowner_count"] == 1
+    assert solar_proj["document_count"] == 2
+    assert solar_proj["special_conditions_count"] == 4
+    assert solar_proj["flagged_node_count"] == 2
+
+    # Verify re-ingesting Contract #1 is idempotent and does not inflate roll-up counts
+    up1_repeat = client.post(
+        "/api/v1/documents/upload",
+        data={"project_id": "prj_sun_ridge_solar"},
+        files={"file": ("Pendelton_Solar_Lease_Tract_A.pdf", b"%PDF-1.4 solar contract 1", "application/pdf")},
+    )
+    assert up1_repeat.status_code == 200
+    solar_proj_after_repeat = next(
+        p for p in client.get("/api/v1/projects").json()["projects"]
+        if p["project_id"] == "prj_sun_ridge_solar"
+    )
+    assert solar_proj_after_repeat["document_count"] == 2
+
+    # 5. Verify Centralized Portfolio Search across technology, project, category (including CR-1/CR-2 alias), and keyword
+    search_all_solar = client.get(
+        "/api/v1/portfolio/search", params={"energy_technology": "SOLAR"}
+    )
+    assert search_all_solar.status_code == 200
+    assert search_all_solar.json()["count"] == 4
+
+    search_setback = client.get(
+        "/api/v1/portfolio/search",
+        params={
+            "project_id": "prj_sun_ridge_solar",
+            "constraint_category": "SETBACK_OR_BUFFER",
+        },
+    )
+    assert search_setback.status_code == 200
+    setback_results = search_setback.json()["results"]
+    assert len(setback_results) == 2
+    assert setback_results[0]["quantitative_metric"] == "300 feet"
+    assert setback_results[0]["landowner_name"] == "Arthur & Martha Pendelton"
+    assert setback_results[0]["erp_project_code"] == "ERP-SOL-002"
+
+    # Verify bidirectional CR-1 <-> CR-2 category alias matching
+    search_cr1_alias = client.get(
+        "/api/v1/portfolio/search",
+        params={
+            "project_id": "prj_sun_ridge_solar",
+            "constraint_category": "STRUCTURE_BARN_WELL_SETBACK",
+        },
+    )
+    assert search_cr1_alias.status_code == 200
+    assert search_cr1_alias.json()["count"] == 2
+
+    search_keyword = client.get("/api/v1/portfolio/search", params={"q": "pecan"})
+    assert search_keyword.status_code == 200
+    kw_results = search_keyword.json()["results"]
+    assert len(kw_results) == 2
+    assert kw_results[0]["constraint_category"] == ConstraintCategory.CROP_OR_TIMBER_COMPENSATION.value
+
+    # 6. Verify PATCH clause review cascades to ProjectRow.flagged_node_count and SpecialConditionRow.hitl_status
+    doc1_id = b1["document"]["document_id"]
+    patch_res = client.patch(
+        f"/api/v1/documents/{doc1_id}/clauses/BODY.8",
+        json={"hitl_status": "APPROVED_BY_HUMAN", "reviewed_by": "solar_pm"},
+    )
+    assert patch_res.status_code == 200
+    solar_proj_after_patch = next(
+        p for p in client.get("/api/v1/projects").json()["projects"]
+        if p["project_id"] == "prj_sun_ridge_solar"
+    )
+    assert solar_proj_after_patch["flagged_node_count"] == 1
+    approved_search = client.get(
+        "/api/v1/portfolio/search",
+        params={"project_id": "prj_sun_ridge_solar", "hitl_status": "APPROVED_BY_HUMAN"},
+    )
+    assert approved_search.status_code == 200
+    assert approved_search.json()["count"] == 2
+
+
+def test_cr3_subcontractor_dnd_checklist_and_signoff(tmp_path: Path) -> None:
+    """Verify CR-3 Subcontractor Field Crew DND Checklist synthesis, HITL safety gate, and tailgate sign-off (CR3-UT-1, CR3-IT-1, CR3-IT-2)."""
+    # 1. CR3-UT-1: Verify deterministic trade & severity classification across all 17 ConstraintCategory values
+    all_categories = list(ConstraintCategory)
+    assert len(all_categories) == 17
+    for idx, cat in enumerate(all_categories, start=1):
+        sc = SpecialConditionRow(
+            condition_id=f"SC_{idx:03d}",
+            document_id="doc_ut",
+            project_id="prj_cedar_lantern_wind",
+            landowner_id="lnd_ut",
+            node_id="BODY.3",
+            canonical_path="BODY.3",
+            constraint_category=cat,
+            target_asset_or_area="historic stone barn",
+            actionable_obligation_summary="Do not grade within 250 feet of the historic stone barn.",
+            quantitative_metric="250 feet" if idx % 2 == 1 else None,
+            temporal_restriction="October 15 - December 1" if idx % 3 == 0 else None,
+            penalty_or_consequence="$5,000 per tree" if idx % 5 == 0 else None,
+            verbatim_excerpt="Grantee shall not grade within 250 feet of the historic stone barn.",
+            page_number=2,
+            hitl_status=HITLStatus.FLAGGED_FOR_REVIEW if idx % 2 == 1 else HITLStatus.APPROVED_BY_HUMAN,
+        )
+        trade, severity, directive_title = classify_dnd_condition(sc)
+        assert isinstance(trade, ConstructionTrade)
+        assert isinstance(severity, DNDSeverityLevel)
+        assert directive_title.startswith(
+            ("DO NOT DISTURB:", "SEASONAL BLACKOUT:", "MANDATORY PROTOCOL:")
+        )
+
+        item = build_dnd_checklist_item(sc)
+        assert item.construction_trade == trade
+        assert item.severity_level == severity
+        assert item.field_directive_title == directive_title
+        if sc.hitl_status == HITLStatus.APPROVED_BY_HUMAN:
+            assert item.dispatch_clearance == DNDDispatchClearance.CLEARED_FOR_DISPATCH
+        else:
+            assert item.dispatch_clearance == DNDDispatchClearance.HOLD_VERIFY_WITH_LAND_AGENT
+
+    # Verify specific trade and severity mappings
+    fencing_sc = SpecialConditionRow(
+        condition_id="SC_FENCE",
+        node_id="BODY.3.b",
+        canonical_path="BODY.3.b",
+        constraint_category=ConstraintCategory.GATES_FENCING_OR_LIVESTOCK,
+        target_asset_or_area="North Pasture Gate",
+        actionable_obligation_summary="Keep North Pasture Gate locked at all times to prevent cattle escape.",
+        verbatim_excerpt="Keep North Pasture Gate locked at all times.",
+        page_number=2,
+    )
+    f_trade, f_sev, f_dir = classify_dnd_condition(fencing_sc)
+    assert f_trade == ConstructionTrade.ACCESS_FENCING_GATES
+    assert f_sev == DNDSeverityLevel.MANDATORY_PROTOCOL
+    assert f_dir.startswith("MANDATORY PROTOCOL:")
+
+    seasonal_sc = SpecialConditionRow(
+        condition_id="SC_SEASONAL",
+        node_id="BODY.3.b",
+        canonical_path="BODY.3.b",
+        constraint_category=ConstraintCategory.CONSTRUCTION_OR_BLACKOUT_WINDOW,
+        target_asset_or_area="Deer Hunting Season Parcel 4",
+        actionable_obligation_summary="Suspend heavy equipment operations during November rifle season.",
+        temporal_restriction="November 15 - November 30",
+        verbatim_excerpt="No construction during November 15 - November 30 rifle hunting window.",
+        page_number=2,
+    )
+    s_trade, s_sev, s_dir = classify_dnd_condition(seasonal_sc)
+    assert s_sev == DNDSeverityLevel.SEASONAL_BLACKOUT
+    assert s_dir.startswith("SEASONAL BLACKOUT:")
+
+    penalty_sc = SpecialConditionRow(
+        condition_id="SC_PENALTY",
+        node_id="BODY.3.c",
+        canonical_path="BODY.3.c",
+        constraint_category=ConstraintCategory.FINANCIAL_PENALTY_LIQUIDATED_DAMAGES,
+        target_asset_or_area="merchantable oak timber",
+        actionable_obligation_summary="Compensate landowner for any merchantable oak timber cut.",
+        penalty_or_consequence="$1,500 per oak tree",
+        verbatim_excerpt="Grantee shall pay $1,500 per oak tree removed.",
+        page_number=2,
+    )
+    p_trade, p_sev, p_dir = classify_dnd_condition(penalty_sc)
+    assert p_trade == ConstructionTrade.CLEARING_VEGETATION
+    assert p_sev == DNDSeverityLevel.RED_ZONE_NO_GO
+    assert p_dir.startswith("DO NOT DISTURB:")
+
+    # 2. CR3-IT-1 & CR3-IT-2: End-to-end API, HITL Safety Gate Interlock, and Tailgate Sign-Off Persistence
+    cr3_clauses = build_synthetic_accommodation_fixture().clauses + [
+        ClauseRow(
+            node_id="BODY.7.a",
+            parent_node_id=None,
+            sibling_order=7,
+            document_zone=DocumentZone.BODY,
+            canonical_path="BODY.7.a",
+            depth=1,
+            clause_label="7(a)",
+            numbering_scheme=NumberingScheme.ALPHA_LOWER,
+            is_inline_clause=False,
+            verbatim_text="7(a) Grantee shall not cut or trim any pecan or oak trees in the Pecan Grove (subject to a $5,000 per tree liquidated damages penalty), and no construction or grading shall occur during deer hunting season from November 15 through December 1.",
+            reconstructed_context_text="7(a) Grantee shall not cut or trim any pecan or oak trees in the Pecan Grove (subject to a $5,000 per tree liquidated damages penalty), and no construction or grading shall occur during deer hunting season from November 15 through December 1.",
+            page_start=4,
+            page_end=4,
+        ),
+        ClauseRow(
+            node_id="BODY.9",
+            parent_node_id=None,
+            sibling_order=9,
+            document_zone=DocumentZone.BODY,
+            canonical_path="BODY.9",
+            depth=1,
+            clause_label="9",
+            numbering_scheme=NumberingScheme.INTEGER,
+            clause_title="Water Well Setback and Gate Protocol",
+            is_inline_clause=False,
+            verbatim_text="9. Water Well Setback and Gate Protocol. Grantee shall not disturb or clear within 250 feet of the homestead water well or barn, and all cattle gates must be kept closed and locked.",
+            reconstructed_context_text="9. Water Well Setback and Gate Protocol. Grantee shall not disturb or clear within 250 feet of the homestead water well or barn, and all cattle gates must be kept closed and locked.",
+            page_start=4,
+            page_end=4,
+        ),
+    ]
+    cr3_raw_scs = [
+        SpecialConditionRow(
+            node_id="BODY.7.a",
+            constraint_category=ConstraintCategory.TREE_VEGETATION_PROTECTION,
+            target_asset_or_area="pecan or oak trees in the Pecan Grove",
+            actionable_obligation_summary="Do not cut or trim any pecan or oak trees in the Pecan Grove.",
+            penalty_or_consequence="$5,000 per tree",
+            verbatim_excerpt="Grantee shall not cut or trim any pecan or oak trees in the Pecan Grove",
+            page_number=4,
+        ),
+        SpecialConditionRow(
+            node_id="BODY.7.a",
+            constraint_category=ConstraintCategory.TIMING_NOISE_HUNTING_BLACKOUT,
+            target_asset_or_area="construction or grading",
+            actionable_obligation_summary="No construction or grading during deer hunting season from November 15 through December 1.",
+            temporal_restriction="November 15 through December 1",
+            verbatim_excerpt="no construction or grading shall occur during deer hunting season from November 15 through December 1.",
+            page_number=4,
+        ),
+    ]
+
+    class CR3DndFixtureExtractor:
+        def extract(
+            self,
+            *,
+            document_id: str,
+            gcs_pdf_uri: str,
+            pdf_bytes: bytes | None = None,
+            project_id: str = "prj_cedar_lantern_wind",
+            landowner_id: str = "lnd_unassigned",
+        ) -> GeminiContractExtraction:
+            del pdf_bytes
+            return normalize_and_enrich_extraction(
+                extraction=GeminiContractExtraction(
+                    page_count=4,
+                    clauses=cr3_clauses,
+                    special_conditions=cr3_raw_scs,
+                ),
+                document_id=document_id,
+                gcs_pdf_uri=gcs_pdf_uri,
+                project_id=project_id,
+                landowner_id=landowner_id,
+            )
+
+    cfg = PipelineConfig(
+        local_data_dir=tmp_path / "cr3_data",
+        use_cloud_storage=False,
+        use_bigquery=False,
+    )
+    store = ContractStorageService(cfg)
+    extractor = CR3DndFixtureExtractor()
+    client = TestClient(
+        create_app(config=cfg, storage_service=store, extractor=extractor)
+    )
+    up_res = client.post(
+        "/api/v1/documents/upload",
+        data={"project_id": "prj_cedar_lantern_wind"},
+        files={"file": ("Cedar_Lantern_DND_Lease.pdf", b"%PDF-1.4 cr3 dnd test", "application/pdf")},
+    )
+    assert up_res.status_code == 200
+    doc_id = up_res.json()["document"]["document_id"]
+
+    # Verify index.html serves the Field Crew DND tab button
+    ui_res = client.get("/")
+    assert ui_res.status_code == 200
+    assert 'id="tab-dnd"' in ui_res.text
+    assert 'data-tab-id="tabBtnDndChecklist"' in ui_res.text
+    assert "Field Crew DND" in ui_res.text
+
+    # Initial DND checklist should be in HOLD_PENDING_HITL because special conditions start as FLAGGED_FOR_REVIEW
+    dnd_res = client.get(f"/api/v1/documents/{doc_id}/dnd-checklist")
+    assert dnd_res.status_code == 200
+    dnd_data = dnd_res.json()
+    assert dnd_data["document_id"] == doc_id
+    assert dnd_data["project_id"] == "prj_cedar_lantern_wind"
+    assert dnd_data["erp_project_code"] == "ERP-WND-001"
+    assert dnd_data["dispatch_readiness"] == DNDDispatchReadiness.HOLD_PENDING_HITL.value
+    assert dnd_data["total_items"] == 3
+    assert dnd_data["cleared_count"] == 0
+    assert dnd_data["hold_count"] == 3
+    assert len(dnd_data["items"]) == 3
+    assert all(
+        item["dispatch_clearance"] == DNDDispatchClearance.HOLD_VERIFY_WITH_LAND_AGENT.value
+        for item in dnd_data["items"]
+    )
+
+    # Filter by construction_trade=BLASTING_TRENCHING_FOUNDATION: items list is filtered, but contract-level readiness & counts stay unfiltered
+    dnd_filtered = client.get(
+        f"/api/v1/documents/{doc_id}/dnd-checklist",
+        params={"construction_trade": "BLASTING_TRENCHING_FOUNDATION"},
+    )
+    assert dnd_filtered.status_code == 200
+    filtered_data = dnd_filtered.json()
+    assert len(filtered_data["items"]) == 1
+    assert filtered_data["items"][0]["construction_trade"] == "BLASTING_TRENCHING_FOUNDATION"
+    assert filtered_data["total_items"] == 3
+    assert filtered_data["hold_count"] == 3
+    assert filtered_data["dispatch_readiness"] == DNDDispatchReadiness.HOLD_PENDING_HITL.value
+
+    # Filter by severity_level=SEASONAL_BLACKOUT while preserving unfiltered contract readiness
+    dnd_sev_filtered = client.get(
+        f"/api/v1/documents/{doc_id}/dnd-checklist",
+        params={"severity_level": "SEASONAL_BLACKOUT"},
+    )
+    assert dnd_sev_filtered.status_code == 200
+    sev_data = dnd_sev_filtered.json()
+    assert sev_data["filtered_items_count"] == 1
+    assert sev_data["items"][0]["severity_level"] == "SEASONAL_BLACKOUT"
+    assert sev_data["dispatch_readiness"] == DNDDispatchReadiness.HOLD_PENDING_HITL.value
+
+    # Verify HTTP 400 rejection on unknown condition_id per CR3-IT-2
+    bad_signoff = client.post(
+        f"/api/v1/documents/{doc_id}/dnd-checklist:signoff",
+        json={
+            "construction_trade": "CLEARING_VEGETATION",
+            "subcontractor_company": "Apex Civil & Grading LLC",
+            "foreman_name": "Travis Miller",
+            "acknowledged_condition_ids": ["sc_UNKNOWN_999"],
+        },
+    )
+    assert bad_signoff.status_code == 400
+    assert "sc_UNKNOWN_999" in bad_signoff.json()["detail"]
+
+    # Approve BODY.7.a via PATCH -> clears 2 conditions on BODY.7.a, 1 hold remains on BODY.9
+    patch_7a = client.patch(
+        f"/api/v1/documents/{doc_id}/clauses/BODY.7.a",
+        json={"hitl_status": "APPROVED_BY_HUMAN", "reviewed_by": "land_agent_1"},
+    )
+    assert patch_7a.status_code == 200
+
+    dnd_partial = client.get(f"/api/v1/documents/{doc_id}/dnd-checklist").json()
+    assert dnd_partial["cleared_count"] == 2
+    assert dnd_partial["hold_count"] == 1
+    assert dnd_partial["dispatch_readiness"] == DNDDispatchReadiness.HOLD_PENDING_HITL.value
+
+    # Record a pre-job tailgate briefing sign-off while 1 hold item is still present
+    signoff_1 = client.post(
+        f"/api/v1/documents/{doc_id}/dnd-checklist:signoff",
+        json={
+            "construction_trade": "CLEARING_VEGETATION",
+            "subcontractor_company": "Apex Civil & Grading LLC",
+            "foreman_name": "Travis Miller",
+            "acknowledged_condition_ids": ["sc_BODY.7.a_1", "sc_BODY.7.a_2"],
+            "briefing_notes": "Staked pecan grove perimeter and briefed November hunting blackout.",
+        },
+    )
+    assert signoff_1.status_code == 200
+    s1_bundle = signoff_1.json()
+    assert len(s1_bundle["signoffs"]) == 1
+    s1_row = s1_bundle["signoffs"][0]
+    assert s1_row["subcontractor_company"] == "Apex Civil & Grading LLC"
+    assert s1_row["foreman_name"] == "Travis Miller"
+    assert s1_row["construction_trade"] == "CLEARING_VEGETATION"
+    assert s1_row["dispatch_readiness_at_signoff"] == DNDDispatchReadiness.HOLD_PENDING_HITL.value
+    assert s1_row["acknowledged_count"] == 2
+    assert s1_row["briefing_notes"] == "Staked pecan grove perimeter and briefed November hunting blackout."
+
+    # Approve remaining clause BODY.9 -> all 3 DND items are now CLEARED_FOR_DISPATCH and contract is READY_FOR_DISPATCH
+    patch_9 = client.patch(
+        f"/api/v1/documents/{doc_id}/clauses/BODY.9",
+        json={"hitl_status": "APPROVED_BY_HUMAN", "reviewed_by": "land_agent_1"},
+    )
+    assert patch_9.status_code == 200
+
+    dnd_ready = client.get(f"/api/v1/documents/{doc_id}/dnd-checklist").json()
+    assert dnd_ready["cleared_count"] == 3
+    assert dnd_ready["hold_count"] == 0
+    assert dnd_ready["dispatch_readiness"] == DNDDispatchReadiness.READY_FOR_DISPATCH.value
+    assert len(dnd_ready["signoffs"]) == 1
+
+    # Record a full-clearance tailgate sign-off
+    signoff_2 = client.post(
+        f"/api/v1/documents/{doc_id}/dnd-checklist:signoff",
+        json={
+            "construction_trade": "GENERAL_SITE_OPERATIONS",
+            "subcontractor_company": "Midwest Wind Erectors Inc.",
+            "foreman_name": "Elena Rostova",
+            "acknowledged_condition_ids": ["sc_BODY.7.a_1", "sc_BODY.7.a_2", "sc_BODY.9_1"],
+            "briefing_notes": "All three DND conditions cleared and briefed at morning tailgate.",
+        },
+    )
+    assert signoff_2.status_code == 200
+    s2_bundle = signoff_2.json()
+    assert len(s2_bundle["signoffs"]) == 2
+    s2_row = next(
+        s for s in s2_bundle["signoffs"]
+        if s["subcontractor_company"] == "Midwest Wind Erectors Inc."
+    )
+    assert s2_row["dispatch_readiness_at_signoff"] == DNDDispatchReadiness.READY_FOR_DISPATCH.value
+    assert s2_row["acknowledged_count"] == 3
+
+    # Verify dnd_checklist_signoffs.csv export endpoint
+    csv_res = client.get(f"/api/v1/documents/{doc_id}/export/dnd_checklist_signoffs.csv")
+    assert csv_res.status_code == 200
+    csv_text = csv_res.text
+    assert "signoff_id,document_id,project_id,landowner_id,subcontractor_company" in csv_text
+    assert "Apex Civil & Grading LLC" in csv_text
+    assert "Midwest Wind Erectors Inc." in csv_text
+
+
 
