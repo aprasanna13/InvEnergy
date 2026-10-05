@@ -303,7 +303,7 @@ def create_app(
 
     fastapi_app = FastAPI(
         title="Hierarchical Contract Parsing & Portfolio Obligation Intelligence",
-        version="0.5.0",
+        version="0.5.1",
         description="Gemini-First Multimodal Contract Hierarchy Parser, 8-Table Portfolio & Field Crew DND Store, BigQuery Data Agent Chat, and pdf.js HITL Review UI",
     )
     fastapi_app.add_middleware(

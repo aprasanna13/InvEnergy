@@ -4,8 +4,8 @@ build-backend = "hatchling.build"
 
 [project]
 name = "contract-parser"
-version = "0.5.0"
-description = "Gemini-First Hierarchical Contract Parsing & Context Preservation Platform (v0.5.0)"
+version = "0.5.1"
+description = "Gemini-First Hierarchical Contract Parsing & Context Preservation Platform (v0.5.1)"
 readme = "Design/DESIGN_DOC.md"
 requires-python = ">=3.11"
 dependencies = [

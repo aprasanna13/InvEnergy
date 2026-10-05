@@ -33,3 +33,15 @@
 - Added `AgentChatRequest`, `AgentDocumentLink`, `AgentChatResponse`, and `parse_data_agent_events()` in `contract_parser/schemas.py` to normalize `geminidataanalytics.googleapis.com/v1beta` `systemMessage` events (`THOUGHT`, `FINAL_RESPONSE`, `data.generatedSql`, `data.result`, `FOLLOWUP_QUESTIONS`, fallback row summaries, and bidirectional `document_id` / `filename` PDF link resolution).
 - Added `_build_local_doc_filename_lookup`, `query_bigquery_data_agent`, `GET /api/v1/agent/info`, and non-blocking `POST /api/v1/agent/chat` (`asyncio.to_thread`) in `contract_parser/app.py` (`v0.5.0`).
 - Updated `contract_parser/static/index.html` with the bottom-right `#bq-agent-fab` launcher button and `#bq-agent-window` floating chat window (with starter prompt chips, inline BigQuery result tables, direct `/api/v1/documents/{document_id}/pdf` links, 1-click `Load in Workbench` sync, and collapsible SQL/reasoning trace), and added `test_cr4_bigquery_data_agent_urn_and_chat_proxy` in `tests/test_pipeline.py`.
+
+## [0.5.1] - 2026-10-05
+- Added a static authentication login overlay (`#login-overlay`) with Invenergy brand styling in `contract_parser/static/index.html` gating the workspace behind credentials (`google123` / `google123`).
+- Added browser session state management (`sessionStorage`) with `checkAuthSession()`, `attemptLogin()`, and `handleLogout()`.
+- Added user profile indicator (`👤 google123`) with a "Sign Out" button to the executive header toolbar.
+- Wrapped the application workspace and floating agent launcher inside `#app-shell` to keep all platform features locked until authentication succeeds.
+- Added UI test assertions in `tests/test_pipeline.py` verifying the presence of `#login-overlay`, input elements, and credential hints.
+- Removed the visible demo credentials hint text from the bottom of `#login-overlay` in `contract_parser/static/index.html`.
+- Created containerization manifests ([Dockerfile](file:///usr/local/google/home/prasannaankem/Code/Invenergy/Dockerfile), [.dockerignore](file:///usr/local/google/home/prasannaankem/Code/Invenergy/.dockerignore)) configured for Python 3.12, dynamic `$PORT` binding on `0.0.0.0`, and `/tmp/data` ephemeral local storage.
+- Deployed the application to Google Cloud Run in project `pr-tftest` (region `us-central1`, service `contract-parser`) with service URL `https://contract-parser-255093976233.us-central1.run.app`.
+
+

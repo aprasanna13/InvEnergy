@@ -1912,9 +1912,13 @@ def test_cr4_bigquery_data_agent_urn_and_chat_proxy(
     assert up_res.status_code == 200
     uploaded_doc_id = up_res.json()["document"]["document_id"]
 
-    # Verify index.html contains the bottom-right launcher and chat window
+    # Verify index.html contains the login overlay, bottom-right launcher and chat window
     ui_res = client.get("/")
     assert ui_res.status_code == 200
+    assert 'id="login-overlay"' in ui_res.text
+    assert 'id="login-username"' in ui_res.text
+    assert 'id="login-password"' in ui_res.text
+    assert "google123" in ui_res.text
     assert 'id="bq-agent-fab"' in ui_res.text
     assert 'id="bq-agent-window"' in ui_res.text
     assert "Ask Agent" in ui_res.text
