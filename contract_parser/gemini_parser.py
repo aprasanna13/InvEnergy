@@ -115,7 +115,7 @@ class ContractExtractorProtocol(Protocol):
 
 
 class GeminiContractParser:
-    """Thin wrapper around the unified google-genai SDK (`gemini-3.8-flash` / `gemini-3.1-pro-preview`)."""
+    """Thin wrapper around the unified google-genai SDK (`gemini-3.1-pro-preview` / `gemini-3.8-flash`)."""
 
     def __init__(self, config: PipelineConfig | None = None) -> None:
         self.config = config or PipelineConfig()

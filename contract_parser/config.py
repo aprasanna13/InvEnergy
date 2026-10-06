@@ -29,10 +29,10 @@ class PipelineConfig:
         in ("true", "1", "yes")
     )
     gemini_model: str = field(
-        default_factory=lambda: os.getenv("GEMINI_MODEL", "gemini-3.8-flash")
+        default_factory=lambda: os.getenv("GEMINI_MODEL", "gemini-3.1-pro-preview")
     )
     gemini_fallback_model: str = field(
-        default_factory=lambda: os.getenv("GEMINI_FALLBACK_MODEL", "gemini-3.1-pro-preview")
+        default_factory=lambda: os.getenv("GEMINI_FALLBACK_MODEL", "gemini-3.8-flash")
     )
     gcs_bucket_name: str = field(
         default_factory=lambda: os.getenv(

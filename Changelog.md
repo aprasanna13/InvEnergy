@@ -48,5 +48,7 @@
 - Updated primary extraction model to `gemini-3.8-flash` in `contract_parser/config.py` with `location="global"` and fallback model set to `gemini-3.1-pro-preview`.
 - Verified live multimodal PDF parsing on Vertex AI / Agent Platform with `GeminiContractExtraction` schema, reducing extraction latency from 180–300s to ~59s without truncation errors.
 - Updated `contract_parser/gemini_parser.py` docstrings and `tests/test_pipeline.py` schema config assertions.
+- Reverted default extraction model back to `gemini-3.1-pro-preview` in `contract_parser/config.py` and Cloud Run service environment variables, retaining `gemini-3.8-flash` as fallback engine.
+- Deployed Cloud Run revision `contract-parser-00004-lml` serving 100% of traffic on `https://contract-parser-255093976233.us-central1.run.app`.
 
 
