@@ -561,7 +561,8 @@ def test_schema_parity_and_config_defaults() -> None:
     cfg = PipelineConfig()
     assert cfg.google_cloud_project == "pr-tftest"
     assert cfg.google_cloud_location == "global"
-    assert cfg.gemini_model == "gemini-3.1-pro-preview"
+    assert cfg.gemini_model == "gemini-3.8-flash"
+    assert cfg.gemini_fallback_model == "gemini-3.1-pro-preview"
     assert cfg.use_enterprise is True
 
 

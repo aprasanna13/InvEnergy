@@ -44,4 +44,9 @@
 - Created containerization manifests ([Dockerfile](file:///usr/local/google/home/prasannaankem/Code/Invenergy/Dockerfile), [.dockerignore](file:///usr/local/google/home/prasannaankem/Code/Invenergy/.dockerignore)) configured for Python 3.12, dynamic `$PORT` binding on `0.0.0.0`, and `/tmp/data` ephemeral local storage.
 - Deployed the application to Google Cloud Run in project `pr-tftest` (region `us-central1`, service `contract-parser`) with service URL `https://contract-parser-255093976233.us-central1.run.app`.
 
+## [0.5.2] - 2026-10-06
+- Updated primary extraction model to `gemini-3.8-flash` in `contract_parser/config.py` with `location="global"` and fallback model set to `gemini-3.1-pro-preview`.
+- Verified live multimodal PDF parsing on Vertex AI / Agent Platform with `GeminiContractExtraction` schema, reducing extraction latency from 180–300s to ~59s without truncation errors.
+- Updated `contract_parser/gemini_parser.py` docstrings and `tests/test_pipeline.py` schema config assertions.
+
 
