@@ -1657,6 +1657,91 @@
       jumpToPage(pageNumber);
     }
 
+    function sortClausesInDocumentOrder(rawClauses) {
+      if (!rawClauses || rawClauses.length === 0) return [];
+      const zoneOrder = {
+        "PREAMBLE": 1,
+        "RECITALS": 2,
+        "BODY": 3,
+        "SIGNATURES": 4,
+        "EXHIBIT_OR_SCHEDULE": 5,
+        "AMENDMENT": 6
+      };
+
+      const origPos = new Map();
+      const clausesById = new Map();
+      const clausesByPath = new Map();
+
+      rawClauses.forEach((c, idx) => {
+        origPos.set(c.node_id, idx);
+        clausesById.set(c.node_id, c);
+        if (c.canonical_path) clausesByPath.set(c.canonical_path, c);
+      });
+
+      // Reconstruct parent if missing
+      rawClauses.forEach(c => {
+        if (!c.parent_node_id && c.canonical_path && c.canonical_path.includes(".")) {
+          const parentPath = c.canonical_path.substring(0, c.canonical_path.lastIndexOf("."));
+          const parentNode = clausesByPath.get(parentPath);
+          if (parentNode && parentNode.node_id !== c.node_id) {
+            c.parent_node_id = parentNode.node_id;
+          }
+        }
+      });
+
+      const childrenMap = new Map();
+      const roots = [];
+
+      rawClauses.forEach(c => {
+        if (c.parent_node_id && clausesById.has(c.parent_node_id) && c.parent_node_id !== c.node_id) {
+          if (!childrenMap.has(c.parent_node_id)) childrenMap.set(c.parent_node_id, []);
+          childrenMap.get(c.parent_node_id).push(c);
+        } else {
+          roots.push(c);
+        }
+      });
+
+      roots.sort((a, b) => {
+        const zA = zoneOrder[a.document_zone] || 99;
+        const zB = zoneOrder[b.document_zone] || 99;
+        if (zA !== zB) return zA - zB;
+        if (a.page_start !== b.page_start) return a.page_start - b.page_start;
+        if (a.sibling_order !== b.sibling_order) return (a.sibling_order || 0) - (b.sibling_order || 0);
+        return (origPos.get(a.node_id) || 0) - (origPos.get(b.node_id) || 0);
+      });
+
+      childrenMap.forEach(chList => {
+        chList.sort((a, b) => {
+          if (a.page_start !== b.page_start) return a.page_start - b.page_start;
+          if (a.sibling_order !== b.sibling_order) return (a.sibling_order || 0) - (b.sibling_order || 0);
+          return (origPos.get(a.node_id) || 0) - (origPos.get(b.node_id) || 0);
+        });
+      });
+
+      const ordered = [];
+      const visited = new Set();
+
+      function traverse(node) {
+        if (visited.has(node.node_id)) return;
+        visited.add(node.node_id);
+        ordered.push(node);
+        const children = childrenMap.get(node.node_id) || [];
+        for (const child of children) {
+          traverse(child);
+        }
+      }
+
+      roots.forEach(r => traverse(r));
+      rawClauses.forEach(c => {
+        if (!visited.has(c.node_id)) {
+          visited.add(c.node_id);
+          ordered.push(c);
+        }
+      });
+
+      return ordered;
+    }
+
     function renderLeftPane() {
       const container = document.getElementById("left-content-list");
       container.innerHTML = "";
@@ -2049,12 +2134,13 @@
         return;
       }
 
-      const clauses = currentBundle.clauses.filter(c => {
+      const rawClauses = currentBundle.clauses.filter(c => {
         if (currentTab === "flagged") {
           return c.hitl_status === "FLAGGED_FOR_REVIEW" || c.hitl_status === "PLACEHOLDER_FOR_REVIEW";
         }
         return true;
       });
+      const clauses = sortClausesInDocumentOrder(rawClauses);
 
       for (const c of clauses) {
         const card = document.createElement("div");

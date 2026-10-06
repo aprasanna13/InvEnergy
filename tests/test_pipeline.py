@@ -2009,3 +2009,179 @@ def test_cr4_bigquery_data_agent_urn_and_chat_proxy(
         chat_json["document_links"][0]["pdf_url"]
         == f"/api/v1/documents/{uploaded_doc_id}/pdf"
     )
+
+
+def test_clause_hierarchical_document_ordering() -> None:
+    """Verify clauses are ordered in strict document tree reading order rather than random or grouped by depth."""
+    from contract_parser.schemas import (
+        DocumentRegistryRow,
+        ParsedContractBundle,
+        sort_clauses_in_document_order,
+    )
+
+    c_sec2 = ClauseRow(
+        document_id="doc_order_test",
+        node_id="BODY.2",
+        canonical_path="BODY.2",
+        clause_label="Section 2",
+        clause_title="Taxes",
+        numbering_scheme=NumberingScheme.INTEGER,
+        depth=1,
+        sibling_order=2,
+        parent_node_id=None,
+        document_zone=DocumentZone.BODY,
+        page_start=2,
+        page_end=2,
+        verbatim_text="Section 2 text.",
+        reconstructed_context_text="Section 2 text.",
+    )
+    c_sec1 = ClauseRow(
+        document_id="doc_order_test",
+        node_id="BODY.1",
+        canonical_path="BODY.1",
+        clause_label="Section 1",
+        clause_title="Lease Term",
+        numbering_scheme=NumberingScheme.INTEGER,
+        depth=1,
+        sibling_order=1,
+        parent_node_id=None,
+        document_zone=DocumentZone.BODY,
+        page_start=1,
+        page_end=1,
+        verbatim_text="Section 1 text.",
+        reconstructed_context_text="Section 1 text.",
+    )
+    c_sub1_1 = ClauseRow(
+        document_id="doc_order_test",
+        node_id="BODY.1.1",
+        canonical_path="BODY.1.1",
+        clause_label="1.1",
+        clause_title="Initial Term",
+        numbering_scheme=NumberingScheme.DECIMAL,
+        depth=2,
+        sibling_order=1,
+        parent_node_id=None,  # Missing parent_node_id, should be inferred from canonical_path
+        document_zone=DocumentZone.BODY,
+        page_start=1,
+        page_end=1,
+        verbatim_text="1.1 text.",
+        reconstructed_context_text="1.1 text.",
+    )
+    c_sub1_1_a = ClauseRow(
+        document_id="doc_order_test",
+        node_id="BODY.1.1.a",
+        canonical_path="BODY.1.1.a",
+        clause_label="(a)",
+        clause_title="Notice",
+        numbering_scheme=NumberingScheme.ALPHA_LOWER,
+        depth=3,
+        sibling_order=1,
+        parent_node_id="BODY.1.1",
+        document_zone=DocumentZone.BODY,
+        page_start=1,
+        page_end=1,
+        verbatim_text="(a) notice text.",
+        reconstructed_context_text="(a) notice text.",
+    )
+    c_sub1_2 = ClauseRow(
+        document_id="doc_order_test",
+        node_id="BODY.1.2",
+        canonical_path="BODY.1.2",
+        clause_label="1.2",
+        clause_title="Renewal Term",
+        numbering_scheme=NumberingScheme.DECIMAL,
+        depth=2,
+        sibling_order=2,
+        parent_node_id="BODY.1",
+        document_zone=DocumentZone.BODY,
+        page_start=1,
+        page_end=2,
+        verbatim_text="1.2 text.",
+        reconstructed_context_text="1.2 text.",
+    )
+    c_preamble = ClauseRow(
+        document_id="doc_order_test",
+        node_id="PREAMBLE.1",
+        canonical_path="PREAMBLE.1",
+        clause_label="Preamble",
+        numbering_scheme=NumberingScheme.UNNUMBERED,
+        depth=1,
+        sibling_order=1,
+        parent_node_id=None,
+        document_zone=DocumentZone.PREAMBLE,
+        page_start=1,
+        page_end=1,
+        verbatim_text="This agreement is entered into...",
+        reconstructed_context_text="This agreement is entered into...",
+    )
+    c_recital_a = ClauseRow(
+        document_id="doc_order_test",
+        node_id="RECITALS.A",
+        canonical_path="RECITALS.A",
+        clause_label="Recital A",
+        numbering_scheme=NumberingScheme.ALPHA_UPPER,
+        depth=1,
+        sibling_order=1,
+        parent_node_id=None,
+        document_zone=DocumentZone.RECITALS,
+        page_start=1,
+        page_end=1,
+        verbatim_text="WHEREAS...",
+        reconstructed_context_text="WHEREAS...",
+    )
+    c_exhibit_a = ClauseRow(
+        document_id="doc_order_test",
+        node_id="EXHIBIT_A",
+        canonical_path="EXHIBIT_A",
+        clause_label="Exhibit A",
+        numbering_scheme=NumberingScheme.NAMED_HEADER,
+        depth=1,
+        sibling_order=1,
+        parent_node_id=None,
+        document_zone=DocumentZone.EXHIBIT_OR_SCHEDULE,
+        page_start=3,
+        page_end=3,
+        verbatim_text="Legal Description...",
+        reconstructed_context_text="Legal Description...",
+    )
+
+    scrambled = [
+        c_sub1_1_a,
+        c_sec2,
+        c_exhibit_a,
+        c_sub1_2,
+        c_recital_a,
+        c_sec1,
+        c_preamble,
+        c_sub1_1,
+    ]
+
+    ordered = sort_clauses_in_document_order(scrambled)
+    ordered_ids = [c.node_id for c in ordered]
+
+    expected_ids = [
+        "PREAMBLE.1",
+        "RECITALS.A",
+        "BODY.1",
+        "BODY.1.1",
+        "BODY.1.1.a",
+        "BODY.1.2",
+        "BODY.2",
+        "EXHIBIT_A",
+    ]
+    assert ordered_ids == expected_ids, f"Expected {expected_ids} but got {ordered_ids}"
+
+    bundle = ParsedContractBundle(
+        document=DocumentRegistryRow(
+            document_id="doc_order_test",
+            filename="order_test.pdf",
+            gcs_pdf_uri="gs://bucket/raw/doc_order_test/order_test.pdf",
+            gcs_export_prefix="gs://bucket/exports/doc_order_test/",
+            page_count=3,
+            contracting_parties_json="[]",
+        ),
+        clauses=scrambled,
+        defined_terms=[],
+        exhibits_catalog=[],
+    )
+    assert [c.node_id for c in bundle.clauses] == expected_ids

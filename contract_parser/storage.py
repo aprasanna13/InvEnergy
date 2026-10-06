@@ -975,7 +975,7 @@ class ContractStorageService:
                     SELECT *, ROW_NUMBER() OVER (PARTITION BY document_id, node_id ORDER BY updated_at DESC, rowid DESC) AS rn
                     FROM clauses WHERE document_id = ?
                 ) WHERE rn = 1
-                ORDER BY page_start ASC, depth ASC, sibling_order ASC
+                ORDER BY page_start ASC, sibling_order ASC, node_id ASC
                 """,
                 (document_id,),
             ).fetchall()
@@ -1100,7 +1100,7 @@ class ContractStorageService:
             FROM `{self.config.bq_dataset_fqn}.clauses`
             WHERE document_id = @doc_id
             QUALIFY ROW_NUMBER() OVER (PARTITION BY document_id, node_id ORDER BY updated_at DESC) = 1
-            ORDER BY page_start ASC, depth ASC, sibling_order ASC
+            ORDER BY page_start ASC, sibling_order ASC, node_id ASC
         """
         terms_sql = f"""
             SELECT {", ".join(DEFINED_TERM_CSV_COLUMNS)}

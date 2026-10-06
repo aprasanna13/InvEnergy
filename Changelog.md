@@ -51,4 +51,12 @@
 - Reverted default extraction model back to `gemini-3.1-pro-preview` in `contract_parser/config.py` and Cloud Run service environment variables, retaining `gemini-3.8-flash` as fallback engine.
 - Deployed Cloud Run revision `contract-parser-00004-lml` serving 100% of traffic on `https://contract-parser-255093976233.us-central1.run.app`.
 
+## [0.5.3] - 2026-10-06
+- Implemented deterministic document tree ordering (`sort_clauses_in_document_order`) in `contract_parser/schemas.py` and automatic post-instantiation enforcement on `ParsedContractBundle`.
+- Organized contract hierarchy traversal via depth-first pre-order sequencing (`PREAMBLE` -> `RECITALS` -> `BODY` -> `SIGNATURES` -> `EXHIBIT_OR_SCHEDULE` -> `AMENDMENT`), placing child clauses (`1.1`, `(a)`) immediately under their parent sections rather than grouping by depth.
+- Added automatic parentage inference fallback from `canonical_path` hierarchy (e.g. `BODY.7.a` -> parent `BODY.7`) when `parent_node_id` is null.
+- Refactored SQLite (`_get_bundle_from_sqlite`) and BigQuery (`get_bundle_from_bigquery`) queries in `contract_parser/storage.py` to sort by `page_start ASC, sibling_order ASC, node_id ASC` instead of `depth ASC`.
+- Extended `contract_parser/static/index.html` with client-side tree ordering (`sortClausesInDocumentOrder`) in `renderLeftPane()` for consistent visual hierarchy in all tabs and filter states.
+- Added comprehensive unit test `test_clause_hierarchical_document_ordering` in `tests/test_pipeline.py`.
+
 

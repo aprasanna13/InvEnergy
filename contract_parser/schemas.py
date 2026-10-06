@@ -4,8 +4,9 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from enum import StrEnum
+from typing import Self
 import re
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 def utc_now_iso() -> str:
@@ -439,6 +440,96 @@ class GeminiContractExtraction(BaseModel):
     )
 
 
+ZONE_ORDER_INDEX: dict[str, int] = {
+    "PREAMBLE": 1,
+    "RECITALS": 2,
+    "BODY": 3,
+    "SIGNATURES": 4,
+    "EXHIBIT_OR_SCHEDULE": 5,
+    "AMENDMENT": 6,
+}
+
+
+def sort_clauses_in_document_order(clauses: list[ClauseRow]) -> list[ClauseRow]:
+    """Sort clauses into hierarchical document reading order via pre-order DFS tree traversal.
+
+    Ensures top-level sections (e.g. Section 1) are immediately followed by their
+    subsections (e.g. 1.1) and nested paragraphs (e.g. (a)) in sequential reading order,
+    rather than grouping by depth or appearing out of sequence.
+    """
+    if not clauses:
+        return []
+
+    # Map original sequence to preserve extraction order among siblings
+    orig_pos: dict[str, int] = {c.node_id: idx for idx, c in enumerate(clauses)}
+    clauses_by_id: dict[str, ClauseRow] = {c.node_id: c for c in clauses}
+    clauses_by_path: dict[str, ClauseRow] = {c.canonical_path: c for c in clauses}
+
+    # Resolve parent_node_id if missing but implied by canonical_path
+    for c in clauses:
+        if not c.parent_node_id and "." in (c.canonical_path or ""):
+            parent_path = c.canonical_path.rsplit(".", 1)[0]
+            if parent_path in clauses_by_path and clauses_by_path[parent_path].node_id != c.node_id:
+                c.parent_node_id = clauses_by_path[parent_path].node_id
+
+    children_map: dict[str, list[ClauseRow]] = {}
+    roots: list[ClauseRow] = []
+
+    for c in clauses:
+        parent_id = c.parent_node_id
+        if parent_id and parent_id in clauses_by_id and parent_id != c.node_id:
+            children_map.setdefault(parent_id, []).append(c)
+        else:
+            roots.append(c)
+
+    def _sort_key(c: ClauseRow) -> tuple[int, int, int, int]:
+        zone_str = (
+            c.document_zone.value
+            if hasattr(c.document_zone, "value")
+            else str(c.document_zone)
+        )
+        zone_idx = ZONE_ORDER_INDEX.get(zone_str, 99)
+        return (
+            zone_idx,
+            c.page_start or 1,
+            c.sibling_order or 0,
+            orig_pos.get(c.node_id, 0),
+        )
+
+    def _child_sort_key(c: ClauseRow) -> tuple[int, int, int]:
+        return (
+            c.page_start or 1,
+            c.sibling_order or 0,
+            orig_pos.get(c.node_id, 0),
+        )
+
+    roots.sort(key=_sort_key)
+    for ch_list in children_map.values():
+        ch_list.sort(key=_child_sort_key)
+
+    ordered: list[ClauseRow] = []
+    visited: set[str] = set()
+
+    def _traverse(node: ClauseRow) -> None:
+        if node.node_id in visited:
+            return
+        visited.add(node.node_id)
+        ordered.append(node)
+        for child in children_map.get(node.node_id, []):
+            _traverse(child)
+
+    for r in roots:
+        _traverse(r)
+
+    # Any unvisited nodes (e.g. cyclic references or disconnected fragments) appended safely
+    for c in clauses:
+        if c.node_id not in visited:
+            visited.add(c.node_id)
+            ordered.append(c)
+
+    return ordered
+
+
 class ParsedContractBundle(BaseModel):
     """Complete hydrated contract bundle returned by the pipeline and API."""
 
@@ -447,6 +538,11 @@ class ParsedContractBundle(BaseModel):
     defined_terms: list[DefinedTermRow]
     exhibits_catalog: list[ExhibitCatalogRow]
     special_conditions: list[SpecialConditionRow] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def ensure_document_order(self) -> Self:
+        self.clauses = sort_clauses_in_document_order(self.clauses)
+        return self
 
 
 class ConstructionTrade(StrEnum):
