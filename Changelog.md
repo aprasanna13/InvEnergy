@@ -59,4 +59,42 @@
 - Extended `contract_parser/static/index.html` with client-side tree ordering (`sortClausesInDocumentOrder`) in `renderLeftPane()` for consistent visual hierarchy in all tabs and filter states.
 - Added comprehensive unit test `test_clause_hierarchical_document_ordering` in `tests/test_pipeline.py`.
 
+## [0.6.0] - 2026-10-06
+- Implemented Change Request CR-5: Semantic Zone Multi-Pass Extraction Pipeline per Option 3A architecture.
+- Pass 1 (Structure & Zone Discovery): Uses fast model (`gemini-3.8-flash`, temperature 0.0) to extract document title, contracting counterparties, effective date, physical body page bounds (`body_start_page`..`body_end_page`), signature execution page spans, signer entities, and attached exhibits with physical page intervals and modality in ~16s.
+- Pass 2 (Agreement Body Extraction) & Pass 3 (Exhibits & Schedules Extraction): Concurrent execution via `concurrent.futures.ThreadPoolExecutor(max_workers=2)` using primary reasoning model `gemini-3.1-pro-preview` (with `gemini-3.8-flash` fallback).
+- Introduced lean extraction schemas (`ExtractedClauseItem`, `ExtractedDefinedTermItem`, `ExtractedSpecialConditionItem`) and bounded reasoning (`thinking_budget=1024`) with `max_output_tokens=65536`, eliminating output token exhaustion and accelerating extraction latency to ~219s.
+- Deterministic Multi-Pass Bundle Assembly (`bundle_assembler.py`): Preamble preservation and fallback synthesis, signature execution block quarantine (`DEFERRED_MODALITY_PLACEHOLDER`), visual plat map / CAD drawing stubs (`EXHIBIT_D.STUB`), zone-guard filtering, and prioritized defined terms deduplication (Body > Exhibits).
+- Live Benchmark on Scanned 33-Page Solar Lease (`SOKGRN0003`):
+  * Total clauses extracted: 127 clauses (577% increase over 22-clause single-pass baseline, exceeding >65 target).
+  * Body section coverage: 100% across Sections 1 through 14 (`PREAMBLE.1` through `BODY.14.17`).
+  * Attached exhibits coverage: Complete extraction across all 5 exhibits (Exhibits A, A-1, B, C, D).
+  * Defined terms dictionary: 57 terms (exceeding >30 target).
+  * Landowner special conditions: 12 distinct physical site constraints and operational covenants.
+  * Wall-clock latency: 219.69s (well within < 360s ceiling).
+- Full regression suite passing: 22 unit, concurrency lifecycle, integration, and pipeline tests.
+- Deployed Cloud Run revision `contract-parser-00006-jqd` in `pr-tftest` (region `us-central1`) serving 100% of traffic on `https://contract-parser-255093976233.us-central1.run.app`.
+
+## [0.7.0] - 2026-10-06
+- Implemented Change Request CR-6: Universal Client-Server Event Progress & Extraction Milestone System.
+- Added native `window.fetch` telemetry interceptor in `contract_parser/static/index.html` scoped strictly to `/api/v1/` routes, establishing automatic progress tracking across 100% of internal server endpoints (document switching, portfolio search, DND signoff, clause editing, BigQuery agent queries, and contract uploads).
+- Built atomic request reference counter (`activeServerRequests`) to coordinate concurrent background server dispatches and suppress false-positive alerts on debounced search cancellations (`AbortError`).
+- Implemented Top-Edge Slim Ambient Progress Bar (`#global-top-progress`) with gradient `#118751` to `#FFCF0B`, smooth width creep, and subtle background pane dimming (`.left-pane, .right-pane.pane-dimmed`).
+- Implemented Center Glassmorphism Extraction Modal (`#extraction-modal-overlay`) with `backdrop-filter: blur(14px)`, live millisecond stopwatch (`⏱ Elapsed: MM:SS / ~03:30 est.`), shimmering pulse track, and 4-phase milestone progression:
+  * Milestone 1: Binary Integrity & Ingestion Staging (0-3.2s)
+  * Milestone 2: Pass 1: Structure & Zone Discovery (3.2-20s)
+  * Milestone 3: Pass 2 & 3: Parallel Zone Deep Extraction (20s until server resolution)
+  * Milestone 4: Assembly, Tree Ordering & BigQuery Sync (resolution hold and auto-dismiss)
+- Implemented deterministic error teardown protocol: immediately dismisses extraction modal, resets top progress bar (`abortGlobalProgress`), restores `#upload-btn`, undims workspace panes, and surfaces silent error toast banner (`#global-error-toast`) on HTTP 4xx/5xx, Cloud Run 504 timeouts, or network drops.
+- Enforced strict zero-audio mandate across all frontend components (zero Web Audio API calls, zero `<audio>` tags, zero audio cues).
+- Added comprehensive hermetic test suite `tests/test_cr6_progress_system.py` verifying DOM markup elements, CSS styling keyframes, telemetry interceptor logic, upload button parity, and zero audio enforcement.
+
+## [0.7.1] - 2026-10-06
+- Added official Invenergy icon assets (`favicon.ico`, `favicon-32x32.png`, `apple-touch-icon.png`) to `contract_parser/static/`.
+- Configured browser favicon and touch icons via `<link rel="icon">` tags in `contract_parser/static/index.html`.
+- Implemented dedicated FastAPI route handlers in `contract_parser/app.py` for `/favicon.ico`, `/favicon-32x32.png`, and `/apple-touch-icon.png` returning proper MIME types and Cache-Control headers.
+- Integrated the Invenergy icon into the page navigation header brand title (`.brand-title`) and the authentication login modal in `contract_parser/static/index.html`.
+
+
+
 

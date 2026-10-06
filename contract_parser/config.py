@@ -34,6 +34,13 @@ class PipelineConfig:
     gemini_fallback_model: str = field(
         default_factory=lambda: os.getenv("GEMINI_FALLBACK_MODEL", "gemini-3.8-flash")
     )
+    fast_discovery_model: str = field(
+        default_factory=lambda: os.getenv("FAST_DISCOVERY_MODEL", "gemini-3.8-flash")
+    )
+    multi_pass_enabled: bool = field(
+        default_factory=lambda: os.getenv("MULTI_PASS_ENABLED", "true").lower()
+        in ("true", "1", "yes")
+    )
     gcs_bucket_name: str = field(
         default_factory=lambda: os.getenv(
             "GCS_BUCKET_NAME", "pr-tftest-contract-intelligence"
@@ -66,6 +73,9 @@ class PipelineConfig:
     )
     max_output_tokens: int = field(
         default_factory=lambda: int(os.getenv("GEMINI_MAX_OUTPUT_TOKENS", "65536"))
+    )
+    pass_timeout_seconds: float = field(
+        default_factory=lambda: float(os.getenv("PASS_TIMEOUT_SECONDS", "480.0"))
     )
 
     def ensure_genai_env(self) -> None:

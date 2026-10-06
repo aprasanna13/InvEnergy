@@ -324,6 +324,21 @@ def create_app(
         index_file = static_dir / "index.html"
         return HTMLResponse(content=index_file.read_text(encoding="utf-8"))
 
+    @fastapi_app.get("/favicon.ico")
+    async def serve_favicon() -> FileResponse:
+        fav_path = static_dir / "favicon.ico"
+        if fav_path.exists():
+            return FileResponse(fav_path, media_type="image/x-icon")
+        return FileResponse(static_dir / "favicon-32x32.png", media_type="image/png")
+
+    @fastapi_app.get("/favicon-32x32.png")
+    async def serve_favicon_32() -> FileResponse:
+        return FileResponse(static_dir / "favicon-32x32.png", media_type="image/png")
+
+    @fastapi_app.get("/apple-touch-icon.png")
+    async def serve_apple_touch_icon() -> FileResponse:
+        return FileResponse(static_dir / "apple-touch-icon.png", media_type="image/png")
+
     @fastapi_app.get("/api/v1/projects")
     async def list_projects_endpoint(
         energy_technology: str | None = None,

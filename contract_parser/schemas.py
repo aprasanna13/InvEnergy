@@ -440,6 +440,200 @@ class GeminiContractExtraction(BaseModel):
     )
 
 
+class ExhibitIndexEntry(BaseModel):
+    """Pass 1: Exhibit summary entry in the structural index."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    exhibit_id: str = Field(description="Identifier (e.g. 'Exhibit A', 'Exhibit B', 'Exhibit C')")
+    exhibit_title: str = Field(description="Title or subject of the exhibit (e.g. 'Legal Description', 'Payment Terms')")
+    page_start: int = Field(default=1, ge=1, description="First physical PDF page of this exhibit")
+    page_end: int = Field(default=1, ge=1, description="Final physical PDF page of this exhibit")
+    exhibit_modality: ExhibitModality = Field(
+        default=ExhibitModality.PROSE_CLAUSES,
+        description="Modality classification of the exhibit",
+    )
+
+    @model_validator(mode="after")
+    def clamp_pages(self) -> Self:
+        if self.page_start < 1:
+            self.page_start = 1
+        if self.page_end < self.page_start:
+            self.page_end = self.page_start
+        return self
+
+
+class SignerEntry(BaseModel):
+    """Pass 1: Signer or execution block entry."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    party_name: str = Field(description="Counterparty name for this signature block")
+    signer_name: str | None = Field(default=None, description="Printed or typed individual signer name")
+    signer_title: str | None = Field(default=None, description="Official title of the signer")
+    page_number: int = Field(default=1, ge=1, description="Physical page number containing this signature block")
+
+
+class ContractStructureIndex(BaseModel):
+    """Pass 1: High-level structural and zone boundary index returned by gemini-3.8-flash."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    document_title: str = Field(description="Formal title of the agreement")
+    grantor_landowner_name: str | None = Field(default=None, description="Canonical grantor counterparty name")
+    grantee_entity_name: str | None = Field(default=None, description="Canonical grantee counterparty name")
+    effective_date: str | None = Field(default=None, description="Execution or effective date string")
+    has_recitals: bool = Field(default=False, description="True if agreement contains WHEREAS recitals")
+    body_start_page: int = Field(default=1, ge=1, description="First physical page of the agreement body")
+    body_end_page: int = Field(default=1, ge=1, description="Final physical page of the agreement body before signatures/exhibits")
+    signature_start_page: int | None = Field(default=None, description="Physical page where signature blocks begin")
+    signature_end_page: int | None = Field(default=None, description="Physical page where signature blocks end")
+    signers: list[SignerEntry] = Field(default_factory=list, description="Extracted signer blocks")
+    exhibits: list[ExhibitIndexEntry] = Field(default_factory=list, description="Attached exhibits and their page spans")
+
+    @model_validator(mode="after")
+    def clamp_boundaries(self) -> Self:
+        if self.body_start_page < 1:
+            self.body_start_page = 1
+        if self.body_end_page < self.body_start_page:
+            self.body_end_page = self.body_start_page
+        if self.signature_start_page is not None and self.signature_start_page < 1:
+            self.signature_start_page = 1
+        if self.signature_end_page is not None and self.signature_start_page is not None:
+            if self.signature_end_page < self.signature_start_page:
+                self.signature_end_page = self.signature_start_page
+        return self
+
+
+class ExtractedClauseItem(BaseModel):
+    """Lean clause extraction schema to keep LLM token generation payload small."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    node_id: str = Field(description="Deterministic node identifier (e.g. 'PREAMBLE.1', 'BODY.1', 'BODY.2.i', 'EXHIBIT_A.1')")
+    parent_node_id: str | None = Field(default=None, description="Parent node_id or null")
+    depth: int = Field(default=1, ge=1, description="1-indexed hierarchical depth")
+    clause_label: str | None = Field(default=None, description="Literal marker e.g. '1', '(a)', '(i)'")
+    clause_title: str | None = Field(default=None, description="Title or heading, if present")
+    numbering_scheme: NumberingScheme = Field(default=NumberingScheme.UNNUMBERED, description="Numbering scheme")
+    document_zone: DocumentZone = Field(default=DocumentZone.BODY, description="Structural zone")
+    page_start: int = Field(default=1, ge=1, description="Starting 1-indexed page")
+    page_end: int = Field(default=1, ge=1, description="Ending 1-indexed page")
+    verbatim_text: str = Field(description="Exact atomic text")
+    hitl_status: HITLStatus = Field(default=HITLStatus.VERIFIED_AUTO, description="HITL status")
+    hitl_flag_reasons: str = Field(default="NONE", description="Flag reasons or NONE")
+
+    def to_clause_row(self) -> ClauseRow:
+        now_iso = utc_now_iso()
+        label = (
+            self.clause_label.strip()
+            if (self.clause_label is not None and self.clause_label.strip())
+            else (self.clause_title or self.node_id)
+        )
+        return ClauseRow(
+            node_id=self.node_id,
+            canonical_path=self.node_id,
+            parent_node_id=self.parent_node_id,
+            depth=self.depth,
+            clause_label=label,
+            clause_title=self.clause_title or label,
+            numbering_scheme=self.numbering_scheme,
+            document_zone=self.document_zone,
+            page_start=self.page_start,
+            page_end=self.page_end,
+            verbatim_text=self.verbatim_text,
+            preamble_text=self.verbatim_text,
+            postamble_text=None,
+            reconstructed_context_text=self.verbatim_text,
+            hitl_status=self.hitl_status,
+            hitl_flag_reasons=self.hitl_flag_reasons,
+            created_at=now_iso,
+            updated_at=now_iso,
+        )
+
+
+class ExtractedDefinedTermItem(BaseModel):
+    """Lean defined term extraction schema."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    term_name: str = Field(description="Defined term name in canonical casing")
+    defined_in_node_id: str = Field(description="Foreign key to clauses.node_id where this term was defined")
+    page_number: int = Field(default=1, ge=1, description="Physical page number where the definition appears")
+    definition_type: DefinitionType = Field(default=DefinitionType.INLINE_PARENTHETICAL, description="Classification of the definition site")
+    verbatim_definition: str = Field(description="Exact verbatim definition text")
+
+    def to_defined_term_row(self, document_id: str = "doc_placeholder") -> DefinedTermRow:
+        now_iso = utc_now_iso()
+        return DefinedTermRow(
+            document_id=document_id,
+            term_name=self.term_name,
+            defined_in_node_id=self.defined_in_node_id,
+            page_number=self.page_number,
+            definition_type=self.definition_type,
+            verbatim_definition=self.verbatim_definition,
+            referenced_in_nodes="NONE",
+            created_at=now_iso,
+            updated_at=now_iso,
+        )
+
+
+class ExtractedSpecialConditionItem(BaseModel):
+    """Lean special condition extraction schema."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    node_id: str = Field(description="Enclosing leaf clause node_id")
+    constraint_category: ConstraintCategory = Field(description="Classification of site constraint")
+    target_asset_or_area: str = Field(description="Physical site feature, structure, or area")
+    quantitative_metric: str | None = Field(default=None, description="Quantified buffer, distance, or metric")
+    temporal_restriction: str | None = Field(default=None, description="Time window, curfew, or blackout period")
+    penalty_or_consequence: str | None = Field(default=None, description="Financial penalty or consequence")
+    actionable_obligation_summary: str = Field(description="Concise operational obligation")
+    verbatim_excerpt: str = Field(description="Exact verbatim excerpt from contract")
+    page_number: int | None = Field(default=None, description="Physical page number where constraint appears")
+
+    def to_special_condition_row(self, document_id: str = "doc_placeholder") -> SpecialConditionRow:
+        now_iso = utc_now_iso()
+        return SpecialConditionRow(
+            condition_id=f"sc_extracted_{self.node_id}",
+            document_id=document_id,
+            node_id=self.node_id,
+            canonical_path=self.node_id,
+            constraint_category=self.constraint_category,
+            target_asset_or_area=self.target_asset_or_area,
+            quantitative_metric=self.quantitative_metric,
+            temporal_restriction=self.temporal_restriction,
+            penalty_or_consequence=self.penalty_or_consequence,
+            actionable_obligation_summary=self.actionable_obligation_summary,
+            verbatim_excerpt=self.verbatim_excerpt,
+            page_number=self.page_number or 1,
+            created_at=now_iso,
+            updated_at=now_iso,
+        )
+
+
+class BodyPassExtraction(BaseModel):
+    """Pass 2: Extracted body sections, defined terms, and body special conditions."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    clauses: list[ExtractedClauseItem | ClauseRow] = Field(default_factory=list, description="Body clauses (Sections 1..N and subsections)")
+    defined_terms: list[ExtractedDefinedTermItem | DefinedTermRow] = Field(default_factory=list, description="Defined terms defined within the body")
+    special_conditions: list[ExtractedSpecialConditionItem | SpecialConditionRow] = Field(default_factory=list, description="Site constraints located in the body")
+
+
+class ExhibitsPassExtraction(BaseModel):
+    """Pass 3: Extracted exhibit clauses, exhibit defined terms, and exhibit special conditions."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    clauses: list[ExtractedClauseItem | ClauseRow] = Field(default_factory=list, description="Clauses extracted from exhibits and schedules")
+    defined_terms: list[ExtractedDefinedTermItem | DefinedTermRow] = Field(default_factory=list, description="Defined terms defined in exhibits")
+    special_conditions: list[ExtractedSpecialConditionItem | SpecialConditionRow] = Field(default_factory=list, description="Site constraints located in exhibits")
+    exhibits_catalog: list[ExhibitCatalogRow] = Field(default_factory=list, description="Detailed exhibit catalog entries")
+
+
 ZONE_ORDER_INDEX: dict[str, int] = {
     "PREAMBLE": 1,
     "RECITALS": 2,

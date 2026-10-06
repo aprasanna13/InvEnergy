@@ -4,6 +4,9 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Invenergy | Contract Intelligence &amp; HITL Review Workspace</title>
+  <link rel="icon" type="image/x-icon" href="/favicon.ico" />
+  <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png" />
+  <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
   <style>
     /* ==========================================================================
@@ -1092,9 +1095,284 @@
       background: #dc2626;
       border-color: #dc2626;
     }
+
+    /* ==========================================================================
+       CR-6: Universal Progress & Extraction Modal Styles
+       ========================================================================== */
+
+    #global-top-progress {
+      position: fixed;
+      top: 0;
+      left: 0;
+      height: 3px;
+      width: 0%;
+      background: linear-gradient(90deg, var(--brand-invenergy-green, #118751), var(--brand-yellow, #FFCF0B));
+      box-shadow: 0 0 10px rgba(17, 135, 81, 0.6), 0 0 4px rgba(255, 207, 11, 0.4);
+      z-index: 999999;
+      pointer-events: none;
+      opacity: 0;
+      transition: width 240ms cubic-bezier(0.16, 1, 0.3, 1), opacity 200ms ease;
+    }
+
+    .pane-dimmed {
+      opacity: 0.72;
+      transition: opacity 180ms ease;
+    }
+
+    .extraction-modal-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(4, 43, 25, 0.78);
+      backdrop-filter: blur(14px);
+      -webkit-backdrop-filter: blur(14px);
+      z-index: 1000000;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+      pointer-events: auto;
+    }
+
+    .extraction-modal-card {
+      width: 100%;
+      max-width: 580px;
+      background: linear-gradient(145deg, rgba(10, 56, 34, 0.95), rgba(4, 43, 25, 0.98));
+      border: 1px solid rgba(206, 228, 218, 0.28);
+      border-radius: 16px;
+      box-shadow: 0 24px 48px -12px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(255, 255, 255, 0.1);
+      padding: 28px;
+      color: #FFFFFF;
+    }
+
+    .extraction-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      margin-bottom: 20px;
+    }
+
+    .extraction-title {
+      font-family: var(--font-display);
+      font-size: 18px;
+      font-weight: 700;
+      color: #FFFFFF;
+      letter-spacing: -0.01em;
+    }
+
+    .extraction-subtitle {
+      font-size: 12px;
+      color: var(--neutrals-sage-green, #CEE4DA);
+      margin-top: 4px;
+    }
+
+    .extraction-timer {
+      font-family: monospace;
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--brand-yellow, #FFCF0B);
+      background: rgba(255, 207, 11, 0.12);
+      padding: 4px 10px;
+      border-radius: 6px;
+      border: 1px solid rgba(255, 207, 11, 0.3);
+    }
+
+    .extraction-pulse-track {
+      width: 100%;
+      height: 6px;
+      background: rgba(206, 228, 218, 0.15);
+      border-radius: 999px;
+      overflow: hidden;
+      margin-bottom: 24px;
+      position: relative;
+    }
+
+    .extraction-pulse-bar {
+      height: 100%;
+      width: 100%;
+      background: linear-gradient(90deg, #118751, #FFCF0B, #118751);
+      background-size: 200% 100%;
+      animation: extractionShimmer 2.2s infinite linear;
+      border-radius: 999px;
+    }
+
+    @keyframes extractionShimmer {
+      0% { background-position: 200% 0; }
+      100% { background-position: -200% 0; }
+    }
+
+    .milestones-container {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .milestone-card {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      padding: 12px 16px;
+      border-radius: 10px;
+      border: 1px solid rgba(206, 228, 218, 0.12);
+      background: rgba(255, 255, 255, 0.03);
+      transition: all 260ms ease;
+    }
+
+    .milestone-pending {
+      opacity: 0.45;
+    }
+
+    .milestone-active {
+      opacity: 1;
+      background: rgba(17, 135, 81, 0.18);
+      border-color: rgba(17, 135, 81, 0.6);
+      box-shadow: 0 0 16px rgba(17, 135, 81, 0.3);
+    }
+
+    .milestone-done {
+      opacity: 0.9;
+      background: rgba(206, 228, 218, 0.08);
+      border-color: rgba(17, 135, 81, 0.4);
+    }
+
+    .milestone-icon {
+      width: 24px;
+      height: 24px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 11px;
+      font-weight: 700;
+      flex-shrink: 0;
+    }
+
+    .milestone-pending .milestone-icon {
+      background: rgba(255, 255, 255, 0.1);
+      color: #AAA;
+    }
+
+    .milestone-active .milestone-icon {
+      background: var(--brand-invenergy-green, #118751);
+      color: #FFF;
+      animation: pulseIcon 1.4s infinite ease-in-out;
+    }
+
+    @keyframes pulseIcon {
+      0%, 100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(17, 135, 81, 0.5); }
+      50% { transform: scale(1.08); box-shadow: 0 0 0 6px rgba(17, 135, 81, 0); }
+    }
+
+    .milestone-done .milestone-icon {
+      background: var(--brand-invenergy-green, #118751);
+      color: #FFF;
+    }
+
+    .milestone-body {
+      flex: 1;
+    }
+
+    .milestone-label {
+      font-size: 13px;
+      font-weight: 600;
+      color: #FFFFFF;
+    }
+
+    .milestone-sub {
+      font-size: 11px;
+      color: var(--neutrals-sage-green, #CEE4DA);
+      margin-top: 2px;
+    }
+
+    .global-error-toast {
+      position: fixed;
+      bottom: 24px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: #7F1D1D;
+      color: #FFFFFF;
+      border: 1px solid #B91C1C;
+      border-radius: 8px;
+      box-shadow: 0 10px 25px rgba(0, 0, 0, 0.4);
+      padding: 12px 18px;
+      z-index: 1000001;
+      display: none;
+      opacity: 0;
+      transition: opacity 250ms ease;
+      max-width: 540px;
+      font-size: 13px;
+    }
+
+    .toast-body {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .toast-close {
+      background: transparent;
+      border: none;
+      color: #FFFFFF;
+      font-size: 16px;
+      cursor: pointer;
+      padding: 0 4px;
+    }
   </style>
 </head>
 <body>
+  <!-- CR-6: Top-Edge Slim Ambient Progress Bar -->
+  <div id="global-top-progress" role="progressbar" aria-valuemin="0" aria-valuemax="100"></div>
+
+  <!-- CR-6: Center Glassmorphism Extraction Modal -->
+  <div id="extraction-modal-overlay" class="extraction-modal-overlay" role="dialog" aria-modal="true" aria-labelledby="extraction-title">
+    <div class="extraction-modal-card">
+      <div class="extraction-header">
+        <div>
+          <div id="extraction-title" class="extraction-title">AI Contract Intelligence Pipeline</div>
+          <div id="extraction-doc-name" class="extraction-subtitle">Uploaded Contract</div>
+        </div>
+        <div id="extraction-timer" class="extraction-timer">⏱ Elapsed: 00:00 / ~03:30 est.</div>
+      </div>
+
+      <div class="extraction-pulse-track">
+        <div id="extraction-pulse-bar" class="extraction-pulse-bar"></div>
+      </div>
+
+      <div class="milestones-container">
+        <div id="milestone-card-1" class="milestone-card milestone-pending">
+          <div class="milestone-icon">1</div>
+          <div class="milestone-body">
+            <div class="milestone-label">Binary Integrity &amp; Ingestion Staging</div>
+            <div class="milestone-sub">SHA-256 validation and Google Cloud Storage staging</div>
+          </div>
+        </div>
+
+        <div id="milestone-card-2" class="milestone-card milestone-pending">
+          <div class="milestone-icon">2</div>
+          <div class="milestone-body">
+            <div class="milestone-label">Pass 1: Structure &amp; Zone Discovery</div>
+            <div class="milestone-sub">Fast flash pass mapping page spans for Body, Signatures &amp; Exhibits</div>
+          </div>
+        </div>
+
+        <div id="milestone-card-3" class="milestone-card milestone-pending">
+          <div class="milestone-icon">3</div>
+          <div class="milestone-body">
+            <div class="milestone-label">Pass 2 &amp; 3: Parallel Zone Deep Extraction</div>
+            <div class="milestone-sub">Concurrent Gemini reasoning across agreement sections, covenants &amp; exhibits</div>
+          </div>
+        </div>
+
+        <div id="milestone-card-4" class="milestone-card milestone-pending">
+          <div class="milestone-icon">4</div>
+          <div class="milestone-body">
+            <div class="milestone-label">Assembly, Tree Ordering &amp; BigQuery Sync</div>
+            <div class="milestone-sub">DFS traversal ordering, cross-referencing, and 8-table persistence</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- CR-5 Static Demo Login Screen Overlay (Credentials: google123 / google123) -->
   <div id="login-overlay" class="login-overlay" style="display:flex;">
     <div class="login-card">
@@ -1110,7 +1388,7 @@
           <path d="M121.04 12.4096C121.04 9.82253 122.423 7.83034 124.581 7.83034C126.739 7.83034 128.123 10.0577 128.123 12.4096C128.123 14.7615 126.56 16.4493 124.581 16.4493C122.603 16.4493 121.04 14.6785 121.04 12.4096ZM121.676 19.6451C121.676 19.0364 122.7 18.4415 123.35 18.151H124.125C128.095 18.151 131.54 16.0204 131.54 11.9531C131.54 10.9985 131.111 9.8917 130.793 9.36598L130.627 9.13079C131.001 8.46673 132.937 8.21771 133.615 8.07936C133.615 8.07936 133.615 7.23545 133.297 6.7374H128.635C127.86 6.7374 126.781 6.14251 125.231 6.14251C121.621 6.14251 117.678 8.27305 117.678 12.7001C117.678 14.8583 119.421 17.2102 122.216 17.8466C120.694 18.5522 118.494 19.8665 118.494 20.3645C118.494 21.4298 119.366 23.0346 121.081 23.4773H121.109C121.621 23.6157 121.897 23.6572 122.036 23.6848H122.119L123.046 23.8094C124.139 23.8094 125.093 23.8094 125.937 23.8509C129.548 23.9892 131.014 24.5288 131.014 26.3688C131.014 28.5685 128.566 30.0903 124.637 30.0903C122.16 30.0903 120.237 29.025 120.237 27.4617C120.237 26.3411 120.348 25.6079 121.551 24.7639L121.358 24.7363C121.219 24.7086 120.984 24.6809 120.569 24.5703C118.771 25.594 117.124 27.0467 117.124 27.6692C117.124 30.4777 119.435 31.958 123.544 31.958C128.718 31.958 134.044 29.4401 134.044 24.8331C134.044 18.6214 121.704 22.5642 121.704 19.659" fill="#FFFFFF"/>
           <path d="M142.718 31.8612C142.884 31.7229 142.926 31.626 143.037 31.3631C144.448 27.7108 149.705 13.0876 150.66 10.2515C151.116 8.90952 151.752 8.25929 153.288 8.09327C153.288 7.24936 152.928 6.75131 152.928 6.75131H146.371C146.371 6.75131 146.011 7.31853 146.011 8.09327C147.325 8.30079 148.391 8.702 148.391 9.40756C148.391 11.7871 146.011 16.6431 144.877 19.7282C144.351 18.4139 140.837 10.3622 140.837 9.3799C140.837 8.53598 143.147 8.24545 143.881 8.10711C143.881 8.10711 143.881 7.26319 143.562 6.76515H135.262C135.262 6.76515 134.902 7.37387 134.874 8.10711C136.465 8.56365 136.687 9.28305 137.752 11.3721C137.959 11.801 142.359 21.1947 143.493 23.7541L141.695 28.2642L141.321 29.288C141.031 30.1734 139.592 30.5192 138.845 30.6576C138.845 30.6576 138.845 31.5153 139.163 31.9995H142.151C142.151 31.9995 142.552 32.0134 142.718 31.8889" fill="#FFFFFF"/>
         </svg>
-        <div style="font-family:var(--font-display); font-size:16px; font-weight:700; margin-top:8px;">Portfolio Contract Intelligence</div>
+        <div style="font-family:var(--font-display); font-size:16px; font-weight:700; margin-top:8px;"><img src="/favicon-32x32.png" width="20" height="20" alt="Invenergy Icon" style="vertical-align: -3px; margin-right: 8px; border-radius: 4px; display: inline-block;" />Portfolio Contract Intelligence</div>
         <div style="font-size:12px; color:var(--neutrals-sage-green); margin-top:2px;">Sign in to access renewable project contracts &amp; compliance records</div>
       </div>
       <div class="login-body">
@@ -1147,8 +1425,7 @@
         </svg>
       </a>
       <span class="brand-divider"></span>
-      <span class="brand-title">Portfolio Contract Intelligence</span>
-      <span class="badge">300 Projects × 50 Landowners · 8-Table Portfolio Model</span>
+      <span class="brand-title"><img src="/favicon-32x32.png" width="20" height="20" alt="Invenergy Icon" style="vertical-align: -3px; margin-right: 8px; border-radius: 4px; display: inline-block;" />Portfolio Contract Intelligence</span>
     </div>
     <div class="toolbar">
       <select id="upload-project-selector" title="Select Target ERP Project before uploading PDF"></select>
@@ -1243,6 +1520,238 @@
       window.pdfjsLib.GlobalWorkerOptions.workerSrc =
         "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
     }
+
+    // ==========================================================================
+    // CR-6: Universal Client-Server Event Progress & Extraction Milestone System
+    // ==========================================================================
+    let activeServerRequests = 0;
+    let progressCreepInterval = null;
+    let currentProgressWidth = 0;
+
+    function startGlobalProgress() {
+      const bar = document.getElementById("global-top-progress");
+      if (!bar) return;
+
+      document.querySelectorAll(".left-pane, .right-pane").forEach(el => el.classList.add("pane-dimmed"));
+
+      clearInterval(progressCreepInterval);
+      bar.style.opacity = "1";
+      currentProgressWidth = Math.max(currentProgressWidth, 25);
+      bar.style.width = currentProgressWidth + "%";
+
+      progressCreepInterval = setInterval(() => {
+        if (currentProgressWidth < 80) {
+          currentProgressWidth += Math.random() * 4 + 1;
+          bar.style.width = Math.min(80, currentProgressWidth) + "%";
+        }
+      }, 180);
+    }
+
+    function finishGlobalProgress() {
+      const bar = document.getElementById("global-top-progress");
+      if (!bar) return;
+
+      clearInterval(progressCreepInterval);
+      currentProgressWidth = 100;
+      bar.style.width = "100%";
+
+      document.querySelectorAll(".left-pane, .right-pane").forEach(el => el.classList.remove("pane-dimmed"));
+
+      setTimeout(() => {
+        bar.style.opacity = "0";
+        setTimeout(() => {
+          bar.style.width = "0%";
+          currentProgressWidth = 0;
+        }, 250);
+      }, 200);
+    }
+
+    function abortGlobalProgress() {
+      const bar = document.getElementById("global-top-progress");
+      if (!bar) return;
+
+      clearInterval(progressCreepInterval);
+      currentProgressWidth = 0;
+      bar.style.opacity = "0";
+      bar.style.width = "0%";
+      document.querySelectorAll(".left-pane, .right-pane").forEach(el => el.classList.remove("pane-dimmed"));
+    }
+
+    let extractionTimerInterval = null;
+    let extractionStartTime = 0;
+    let milestoneScheduleTimeouts = [];
+
+    function showExtractionModal(filename) {
+      const overlay = document.getElementById("extraction-modal-overlay");
+      const filenameEl = document.getElementById("extraction-doc-name");
+      if (!overlay) return;
+
+      if (filenameEl) filenameEl.textContent = filename || "Uploaded Contract";
+      overlay.style.display = "flex";
+
+      for (let i = 1; i <= 4; i++) {
+        const card = document.getElementById(`milestone-card-${i}`);
+        if (card) {
+          card.className = "milestone-card milestone-pending";
+        }
+      }
+
+      extractionStartTime = Date.now();
+      const timerEl = document.getElementById("extraction-timer");
+      clearInterval(extractionTimerInterval);
+      extractionTimerInterval = setInterval(() => {
+        const elapsedSec = Math.floor((Date.now() - extractionStartTime) / 1000);
+        const mm = String(Math.floor(elapsedSec / 60)).padStart(2, "0");
+        const ss = String(elapsedSec % 60).padStart(2, "0");
+        if (timerEl) timerEl.textContent = `⏱ Elapsed: ${mm}:${ss} / ~03:30 est.`;
+      }, 500);
+
+      milestoneScheduleTimeouts.forEach(t => clearTimeout(t));
+      milestoneScheduleTimeouts = [];
+
+      setMilestoneState(1, "active");
+
+      milestoneScheduleTimeouts.push(setTimeout(() => {
+        setMilestoneState(1, "done");
+        setMilestoneState(2, "active");
+      }, 3200));
+
+      milestoneScheduleTimeouts.push(setTimeout(() => {
+        setMilestoneState(2, "done");
+        setMilestoneState(3, "active");
+      }, 20000));
+    }
+
+    function setMilestoneState(index, state) {
+      const card = document.getElementById(`milestone-card-${index}`);
+      if (!card) return;
+      card.className = `milestone-card milestone-${state}`;
+    }
+
+    function handleExtractionSuccess() {
+      milestoneScheduleTimeouts.forEach(t => clearTimeout(t));
+      milestoneScheduleTimeouts = [];
+
+      setMilestoneState(1, "done");
+      setMilestoneState(2, "done");
+      setMilestoneState(3, "done");
+      setMilestoneState(4, "active");
+
+      const pulseBar = document.getElementById("extraction-pulse-bar");
+      if (pulseBar) {
+        pulseBar.style.width = "100%";
+        pulseBar.style.background = "var(--brand-invenergy-green, #118751)";
+      }
+
+      setTimeout(() => {
+        setMilestoneState(4, "done");
+        setTimeout(() => {
+          hideExtractionModal();
+        }, 1200);
+      }, 600);
+    }
+
+    function hideExtractionModal() {
+      const overlay = document.getElementById("extraction-modal-overlay");
+      if (overlay) overlay.style.display = "none";
+
+      clearInterval(extractionTimerInterval);
+      milestoneScheduleTimeouts.forEach(t => clearTimeout(t));
+      milestoneScheduleTimeouts = [];
+
+      const btn = document.getElementById("upload-btn");
+      if (btn) {
+        btn.disabled = false;
+        btn.textContent = "Upload & Parse PDF";
+      }
+    }
+
+    function handleServerError(statusCode, message, isUpload) {
+      abortGlobalProgress();
+
+      if (isUpload) {
+        hideExtractionModal();
+      }
+
+      const errorText = statusCode === 504 
+        ? "Cloud Run Request Timeout (504): The server extraction exceeded the processing deadline."
+        : `Server Error (${statusCode || "Network Failure"}): ${message}`;
+
+      displayGlobalErrorToast(errorText);
+    }
+
+    function displayGlobalErrorToast(message) {
+      let toast = document.getElementById("global-error-toast");
+      if (!toast) {
+        toast = document.createElement("div");
+        toast.id = "global-error-toast";
+        toast.className = "global-error-toast";
+        document.body.appendChild(toast);
+      }
+
+      toast.innerHTML = `
+        <div class="toast-body">
+          <span class="toast-icon">⚠️</span>
+          <span class="toast-message">${message}</span>
+          <button type="button" class="toast-close" onclick="this.parentElement.parentElement.style.opacity='0';">&times;</button>
+        </div>
+      `;
+      toast.style.display = "block";
+      toast.style.opacity = "1";
+
+      setTimeout(() => {
+        if (toast) {
+          toast.style.opacity = "0";
+          setTimeout(() => { toast.style.display = "none"; }, 300);
+        }
+      }, 8000);
+    }
+
+    // Universal fetch interceptor
+    const originalFetch = window.fetch;
+    window.fetch = async function(...args) {
+      const url = typeof args[0] === "string" ? args[0] : (args[0] && args[0].url) || "";
+
+      const isApiCall = typeof url === "string" && url.includes("/api/v1/");
+      if (!isApiCall) {
+        return originalFetch.apply(this, args);
+      }
+
+      const isUpload = url.includes("/api/v1/documents/upload");
+
+      activeServerRequests++;
+      startGlobalProgress();
+
+      if (isUpload) {
+        const filename = (args[1] && args[1].body instanceof FormData)
+          ? (args[1].body.get("file")?.name || "Contract Document")
+          : "Contract Document";
+        showExtractionModal(filename);
+      }
+
+      try {
+        const response = await originalFetch.apply(this, args);
+
+        if (!response.ok) {
+          handleServerError(response.status, response.statusText, isUpload);
+        } else if (isUpload) {
+          handleExtractionSuccess();
+        }
+
+        return response;
+      } catch (error) {
+        if (error.name === "AbortError") {
+          return Promise.reject(error);
+        }
+        handleServerError(0, error.message || "Network Timeout / Connection Error", isUpload);
+        throw error;
+      } finally {
+        activeServerRequests = Math.max(0, activeServerRequests - 1);
+        if (activeServerRequests === 0) {
+          finishGlobalProgress();
+        }
+      }
+    };
 
     let currentBundle = null;
     let currentTab = "all";
@@ -1428,7 +1937,7 @@
         document.getElementById("portfolio-project-filter").value = bundle.document.project_id || targetProjectId;
         await loadPortfolioHierarchy(bundle.document.document_id);
       } catch (err) {
-        alert("Upload error: " + err.message);
+        displayGlobalErrorToast("Upload error: " + (err.message || "Upload failed"));
       } finally {
         btn.disabled = false;
         btn.textContent = "Upload & Parse PDF";

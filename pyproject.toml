@@ -29,3 +29,7 @@ packages = ["contract_parser"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
+markers = [
+    "live: marks tests requiring external live LLM calls and network credentials",
+]
+addopts = "-m 'not live'"

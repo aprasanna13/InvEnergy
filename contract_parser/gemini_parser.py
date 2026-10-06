@@ -2,101 +2,51 @@
 
 from __future__ import annotations
 
+import concurrent.futures
 import json
 import logging
 import re
+import threading
 import time
 from typing import Protocol
 
 from google import genai
 from google.genai import types
 
+from contract_parser.bundle_assembler import assemble_multi_pass_extraction
 from contract_parser.config import PipelineConfig
+from contract_parser.prompts import (
+    BODY_PASS_SYSTEM_PROMPT,
+    DISCOVERY_SYSTEM_PROMPT,
+    EXHIBITS_PASS_SYSTEM_PROMPT,
+    SINGLE_PASS_SYSTEM_PROMPT,
+    build_body_pass_directive,
+    build_discovery_directive,
+    build_exhibits_pass_directive,
+)
 from contract_parser.schemas import (
+    BodyPassExtraction,
     ClauseRow,
     ConstraintCategory,
+    ContractStructureIndex,
     DefinedTermRow,
     DefinitionType,
     DocumentZone,
     ExhibitCatalogRow,
     ExhibitModality,
+    ExhibitsPassExtraction,
     FlagCode,
     GeminiContractExtraction,
     HITLStatus,
     NumberingScheme,
     SpecialConditionRow,
+    sort_clauses_in_document_order,
     utc_now_iso,
 )
 
 logger = logging.getLogger(__name__)
 
-SYSTEM_PROMPT = """You are an expert legal contract structural parser and obligation intelligence engine.
-You are given a PDF of a legal agreement (which may be a scanned image PDF without an embedded text layer).
-Read every page visually from physical page 1 through the final page and return a complete, lossless structured representation conforming strictly to the `GeminiContractExtraction` JSON schema.
-
-Follow these universal rules:
-1. VISUAL LAYOUT & PHYSICAL PAGE INDEXING:
-   - Always report 1-indexed PHYSICAL PDF page numbers (`page_start`, `page_end`, `page_number`) from 1 to `page_count`.
-   - Visually ignore repeating page headers/footers (e.g. "Page 2 of 12", document control footers), pleading paper margin line numbers, and struck-through/redlined text.
-   - Read side-by-side two-column blocks (such as Section 7 Notice addresses on Page 3) down the left column first ("If to Cedar Lantern: ...") and then the right column ("If to Blue Meridian: ...").
-   - Stitch clauses that split mid-sentence across physical page boundaries (e.g. Section 6 starting at the bottom of Page 2 and finishing at the top of Page 3 gets `page_start=2, page_end=3`).
-
-2. ARBITRARY-DEPTH HIERARCHY & NUMBERING DISAMBIGUATION:
-   - Segment nodes into `document_zone`: `PREAMBLE`, `RECITALS`, `BODY`, `SIGNATURES`, `EXHIBIT_OR_SCHEDULE`, or `AMENDMENT`.
-   - Use deterministic `node_id` and `canonical_path` values:
-     * Opening paragraph before recitals -> `node_id="PREAMBLE.1"`, `canonical_path="PREAMBLE.1"`, `document_zone="PREAMBLE"`, `depth=1`, `numbering_scheme="UNNUMBERED"`.
-     * Recitals -> `RECITALS.1`, `RECITALS.2`, etc. (`document_zone="RECITALS"`, `depth=1`, `numbering_scheme="INTEGER"`, `clause_label="1"`, `level_1_label="1"`).
-     * Main agreement sections -> `BODY.1`, `BODY.2`, ..., `BODY.17` (`document_zone="BODY"`, `depth=1`, `numbering_scheme="INTEGER"`, `clause_label="1"`, `level_1_label="1"`).
-     * Inline or block sub-clauses -> e.g. `BODY.2.i`, `BODY.2.ii`, `BODY.3.a`, `BODY.3.b`, `BODY.3.c`, `BODY.4.i`, `BODY.4.ii`, `BODY.4.iii`, `BODY.5.i`, `BODY.5.ii`, `BODY.5.iii`, `BODY.8.i`, `BODY.8.ii`.
-     * Disambiguate `(i)`, `(v)`, `(x)`: if `(i)` follows `(h)` and is followed by `(j)` (or no `(ii)`), classify as `ALPHA_LOWER` at the same depth. If `(i)` follows a colon/preamble or is followed by `(ii)`, classify as `ROMAN_LOWER` at child depth `d+1`.
-     * When a section jumps directly from `INTEGER` (e.g. `2`, `4`, `5`, `8`) to `ROMAN_LOWER` (`(i)`, `(ii)`) without an intermediate `ALPHA_LOWER` (`(a)`) tier, set `depth=2`, `level_1_label="<section_num>"`, `level_2_label="(i)"`, and include `AMBIGUOUS_HIERARCHY_MARKER` in `hitl_flag_reasons`.
-
-3. SANDWICH CLAUSES & RECONSTRUCTED CONTEXT (`verbatim_text` vs `reconstructed_context_text`):
-   - Split every parent clause that has inline or block children into:
-     * `preamble_text`: The lead-in text before the first child marker `(a)` or `(i)`.
-     * `verbatim_text`: For a parent container with children, set `verbatim_text` to the full paragraph or lead-in; for each child node, set `verbatim_text` to ONLY that child's exact clause text (e.g. `"(i) Cedar Lantern's use of Property;"`).
-     * `postamble_text`: On the parent node, capture any trailing carve-out or continuation sentences that appear after the last child marker `(iii)` or `(ii)` (for example, in Sections 4 and 5: `"except to the extent such Liabilities arise from the negligence or willful misconduct of..."`, and in Section 8: the unnumbered sentences including `"Notwithstanding the foregoing..."`).
-   - For EVERY child node, populate `reconstructed_context_text` as a complete, self-contained legal provision combining:
-     `[Ancestor preamble_text] + [Child verbatim_text] + [Ancestor postamble_text]`.
-     For example, on `BODY.4.i`, `reconstructed_context_text` MUST include the opening indemnity preamble from `BODY.4`, `"(i) Cedar Lantern's use of Property;"`, AND the trailing negligence carve-out `"except to the extent such Liabilities arise from the negligence or willful misconduct of Blue Meridian."`
-   - For Exhibit property carve-outs (such as Exhibit A, Parcel 4 `LESS AND EXCEPT` on Page 8), create node `EXHIBIT_A.PARCEL_4.EXCEPT_1` with `parent_node_id="EXHIBIT_A.PARCEL_4"`, `depth=3`, `numbering_scheme="NAMED_HEADER"`, `level_1_label="Exhibit A"`, `level_2_label="Parcel 4"`, `level_3_label="LESS_AND_EXCEPT"`, and prefix `reconstructed_context_text` with `"Excluded from Exhibit A, Parcel 4: ..."`.
-
-4. SIGNATURES, EXHIBITS & PLACEHOLDERS:
-   - Quarantine handwritten signature and notary execution pages (e.g. Pages 5 and 6) as `SIGNATURES.1` (Page 5) and `SIGNATURES.2` (Page 6) with `document_zone="SIGNATURES"`, `numbering_scheme="NAMED_HEADER"`, `hitl_status="PLACEHOLDER_FOR_REVIEW"`, and `hitl_flag_reasons="DEFERRED_MODALITY_PLACEHOLDER"`.
-   - Catalog every Exhibit in `exhibits_catalog`:
-     * `Exhibit A` (`PROPERTY_DESCRIPTION`, Pages 7-8): populate `structured_entities_json` with all 4 parcels (including Tax Parcel IDs and the 6.15-acre `LESS AND EXCEPT` carve-out in Parcel 4).
-     * `Exhibit B` (`EXTERNAL_INSTRUMENT_LIST`, Page 9) and `Exhibit C` (`EXTERNAL_INSTRUMENT_LIST`, Page 10): list the recorded easement instruments (Book/Page numbers) in `structured_entities_json` and set `has_unresolved_external_dep=true` because Section 2 (Term) depends on easement expiration dates that are not stated in Exhibits B or C.
-     * `Exhibit D` (`VISUAL_DRAWING_OR_MAP_STUB`, Pages 11-12): create clause stub `EXHIBIT_D.STUB` with `page_start=11, page_end=12`, `hitl_status="PLACEHOLDER_FOR_REVIEW"`, and `hitl_flag_reasons="DEFERRED_MODALITY_PLACEHOLDER"`.
-
-5. DEFINED TERMS & UNIVERSAL HITL FLAGS:
-   - Extract all Defined Terms into `defined_terms` (including `Agreement`, `Cedar Lantern`, `Blue Meridian`, `Property`, `Party`, `Parties`, `Cedar Lantern Easements`, `Cedar Lantern Project`, `Blue Meridian Easements`, `Blue Meridian Project`, `FPUC`, `CCN`, `Blue Meridian Facilities`, `Operations`, `Equipment`, `Liabilities`).
-   - Populate `hitl_flag_reasons` (pipe-delimited sorted codes, or `"NONE"`) using the universal codes:
-     * `AMBIGUOUS_HIERARCHY_MARKER`: Skipped numbering tier (`INTEGER` -> `ROMAN_LOWER` without `ALPHA_LOWER`, e.g. `BODY.2.i`, `BODY.2.ii`, `BODY.4.i..iii`, `BODY.5.i..iii`, `BODY.8.i..ii`) or ambiguous `(i)` transition.
-     * `SCOPE_CARVEOUT_DETECTED`: Clauses containing legal carve-outs/exceptions (`except to the extent`, `LESS AND EXCEPT`, `Notwithstanding the foregoing`, `provided, however`).
-     * `UNRESOLVED_EXTERNAL_DEPENDENCY`: Clauses whose legal effect depends on unattached external instruments (e.g. `BODY.2`, `BODY.2.i`, `BODY.2.ii` depending on expiration of `Blue Meridian Easements` / `Cedar Lantern Easements` in Exhibits B and C).
-     * `BROKEN_INTERNAL_REFERENCE`: Explicit reference to a non-existent Section or Exhibit.
-     * `DEFERRED_MODALITY_PLACEHOLDER`: Signature/notary blocks with handwriting (`SIGNATURES.1`, `SIGNATURES.2`) and visual CAD/map exhibits (`EXHIBIT_D.STUB`).
-     * `TEXT_COVERAGE_GAP`: Illegible scan blocks or cut-off text margins.
-     * `LANDOWNER_SPECIAL_CONDITION`: Any clause containing one or more physical or operational Landowner Special Conditions / Site Constraints.
-
-6. LANDOWNER "SPECIAL CONDITIONS" & PHYSICAL SITE CONSTRAINTS (`special_conditions`):
-   - Extract every bespoke physical or operational landowner restriction, special condition, or site constraint into `special_conditions` (1 `SpecialConditionRow` per distinct constraint).
-   - Always attach each `SpecialConditionRow` to the MOST SPECIFIC LEAF `node_id` where the constraint appears (do not duplicate the same condition on both a parent container clause and its child sub-clause).
-   - If a single clause contains multiple distinct physical constraints (e.g., a 150-foot barn setback, a locked gate rule, and a seasonal hunting blackout), decompose them into separate `SpecialConditionRow` entries sharing that `node_id`.
-   - Classify each constraint using one of the 7 `ConstraintCategory` values:
-     * `TREE_VEGETATION_PROTECTION` (trees, groves, orchards, windbreaks, timber)
-     * `STRUCTURE_BARN_WELL_SETBACK` (setbacks/buffers around barns, sheds, water wells, residences, fences, septic)
-     * `ACCESS_ROAD_GATE_PROTOCOL` (locked gates, designated entry roads, culvert weight limits, speed limits, advance notice)
-     * `LIVESTOCK_AGRICULTURE` (cattle, livestock, grazing, drainage tiles, irrigation pivots, crops)
-     * `TIMING_NOISE_HUNTING_BLACKOUT` (hunting season blackouts, harvest windows, work hours, noise/blasting curfews)
-     * `FINANCIAL_PENALTY_LIQUIDATED_DAMAGES` (explicit dollar penalties or liquidated damages for site violations)
-     * `OTHER_CUSTOM_RIDER` (other bespoke operational landowner rules)
-   - Strictly separate legal liability/indemnification carve-outs (`SCOPE_CARVEOUT_DETECTED`, such as "except for negligence or willful misconduct") and pure surveyor metes-and-bounds bearings from operational/physical site constraints.
-
-7. PORTFOLIO COUNTERPARTY EXTRACTION (`grantor_landowner_name` & `grantee_entity_name` — CR-2):
-   - Populate `grantor_landowner_name` with the full legal name of the Landowner / Grantor / Property Owner / Accommodating Party stated in the PREAMBLE, RECITALS, or SIGNATURES.
-   - Populate `grantee_entity_name` with the full legal name of the Developer SPV / Grantee / Lessee / Project Company stated in the PREAMBLE, RECITALS, or SIGNATURES.
-"""
+SYSTEM_PROMPT = SINGLE_PASS_SYSTEM_PROMPT
 
 
 class ContractExtractorProtocol(Protocol):
@@ -121,17 +71,20 @@ class GeminiContractParser:
         self.config = config or PipelineConfig()
         self.config.ensure_genai_env()
         self._client: genai.Client | None = None
+        self._client_lock = threading.Lock()
 
     @property
     def client(self) -> genai.Client:
-        """Lazily initialize the unified Google Gen AI client."""
+        """Lazily and thread-safely initialize the unified Google Gen AI client."""
         if self._client is None:
-            self.config.ensure_genai_env()
-            self._client = genai.Client(
-                vertexai=self.config.use_enterprise,
-                project=self.config.google_cloud_project,
-                location=self.config.google_cloud_location,
-            )
+            with self._client_lock:
+                if self._client is None:
+                    self.config.ensure_genai_env()
+                    self._client = genai.Client(
+                        vertexai=self.config.use_enterprise,
+                        project=self.config.google_cloud_project,
+                        location=self.config.google_cloud_location,
+                    )
         return self._client
 
     def _build_pdf_part(
@@ -150,17 +103,212 @@ class GeminiContractParser:
             f"Either a valid gs:// URI (got {gcs_pdf_uri!r}) or pdf_bytes must be provided."
         )
 
-    def extract(
+    def _discover_contract_structure(
+        self, pdf_part: types.Part, total_pages: int | None = None
+    ) -> ContractStructureIndex:
+        """Pass 1: Discover high-level structure, zone boundaries, and attached exhibits."""
+        models_to_try = [self.config.fast_discovery_model]
+        if self.config.gemini_model not in models_to_try:
+            models_to_try.append(self.config.gemini_model)
+        if (
+            self.config.gemini_fallback_model
+            and self.config.gemini_fallback_model not in models_to_try
+        ):
+            models_to_try.append(self.config.gemini_fallback_model)
+
+        last_err: Exception | None = None
+        for model_name in models_to_try:
+            backoff = self.config.initial_backoff_seconds
+            for attempt in range(1, self.config.max_retries + 1):
+                try:
+                    logger.info(
+                        "Pass 1: Discovering contract structure with %s (attempt %d/%d)",
+                        model_name,
+                        attempt,
+                        self.config.max_retries,
+                    )
+                    directive = build_discovery_directive(total_pages)
+                    response = self.client.models.generate_content(
+                        model=model_name,
+                        contents=[pdf_part, directive],
+                        config=types.GenerateContentConfig(
+                            system_instruction=DISCOVERY_SYSTEM_PROMPT,
+                            response_mime_type="application/json",
+                            response_schema=ContractStructureIndex,
+                            temperature=0.0,
+                        ),
+                    )
+                    if response.parsed is not None and isinstance(
+                        response.parsed, ContractStructureIndex
+                    ):
+                        return response.parsed
+                    if response.text:
+                        return ContractStructureIndex.model_validate_json(response.text)
+                    raise RuntimeError("Pass 1 discovery returned empty response.")
+                except Exception as exc:
+                    last_err = exc
+                    err_str = str(exc)
+                    if any(
+                        fatal in err_str
+                        for fatal in ("404", "NOT_FOUND", "EOF while parsing", "json_invalid", "validation error")
+                    ):
+                        logger.warning(
+                            "Pass 1 %s encountered non-retryable error (%s). Falling back to next model.",
+                            model_name,
+                            err_str,
+                        )
+                        break
+                    if attempt < self.config.max_retries:
+                        time.sleep(backoff)
+                        backoff *= 2.0
+
+        raise RuntimeError(
+            f"Pass 1 structural discovery failed across models {models_to_try}: {last_err}"
+        ) from last_err
+
+    def _extract_body_pass(
+        self, pdf_part: types.Part, index: ContractStructureIndex
+    ) -> BodyPassExtraction:
+        """Pass 2: Extract agreement body sections (Sections 1..N), subsections, preamble, and definitions."""
+        models_to_try = [self.config.gemini_model]
+        if (
+            self.config.gemini_fallback_model
+            and self.config.gemini_fallback_model not in models_to_try
+        ):
+            models_to_try.append(self.config.gemini_fallback_model)
+
+        last_err: Exception | None = None
+        for model_name in models_to_try:
+            backoff = self.config.initial_backoff_seconds
+            for attempt in range(1, self.config.max_retries + 1):
+                try:
+                    logger.info(
+                        "Pass 2: Extracting agreement body with %s (attempt %d/%d, pp. %d–%d)",
+                        model_name,
+                        attempt,
+                        self.config.max_retries,
+                        index.body_start_page,
+                        index.body_end_page,
+                    )
+                    directive = build_body_pass_directive(index)
+                    response = self.client.models.generate_content(
+                        model=model_name,
+                        contents=[pdf_part, directive],
+                        config=types.GenerateContentConfig(
+                            system_instruction=BODY_PASS_SYSTEM_PROMPT,
+                            response_mime_type="application/json",
+                            response_schema=BodyPassExtraction,
+                            temperature=0.0,
+                            max_output_tokens=self.config.max_output_tokens,
+                            thinking_config=types.ThinkingConfig(thinking_budget=1024),
+                        ),
+                    )
+                    if response.parsed is not None and isinstance(
+                        response.parsed, BodyPassExtraction
+                    ):
+                        return response.parsed
+                    if response.text:
+                        return BodyPassExtraction.model_validate_json(response.text)
+                    raise RuntimeError("Pass 2 body extraction returned empty response.")
+                except Exception as exc:
+                    last_err = exc
+                    err_str = str(exc)
+                    if any(
+                        fatal in err_str
+                        for fatal in ("404", "NOT_FOUND", "EOF while parsing", "json_invalid", "validation error")
+                    ):
+                        logger.warning(
+                            "Pass 2 %s encountered non-retryable error (%s). Falling back to next model.",
+                            model_name,
+                            err_str,
+                        )
+                        break
+                    if attempt < self.config.max_retries:
+                        time.sleep(backoff)
+                        backoff *= 2.0
+
+        raise RuntimeError(
+            f"Pass 2 body extraction failed across models {models_to_try}: {last_err}"
+        ) from last_err
+
+    def _extract_exhibits_pass(
+        self, pdf_part: types.Part, index: ContractStructureIndex
+    ) -> ExhibitsPassExtraction:
+        """Pass 3: Extract attached exhibits and schedules clauses, defined terms, and site constraints."""
+        if not index.exhibits:
+            logger.info("Pass 3: No exhibits detected in structural index; bypassing exhibits pass.")
+            return ExhibitsPassExtraction()
+
+        models_to_try = [self.config.gemini_model]
+        if (
+            self.config.gemini_fallback_model
+            and self.config.gemini_fallback_model not in models_to_try
+        ):
+            models_to_try.append(self.config.gemini_fallback_model)
+
+        last_err: Exception | None = None
+        for model_name in models_to_try:
+            backoff = self.config.initial_backoff_seconds
+            for attempt in range(1, self.config.max_retries + 1):
+                try:
+                    logger.info(
+                        "Pass 3: Extracting exhibits with %s (attempt %d/%d, %d exhibits)",
+                        model_name,
+                        attempt,
+                        self.config.max_retries,
+                        len(index.exhibits),
+                    )
+                    directive = build_exhibits_pass_directive(index)
+                    response = self.client.models.generate_content(
+                        model=model_name,
+                        contents=[pdf_part, directive],
+                        config=types.GenerateContentConfig(
+                            system_instruction=EXHIBITS_PASS_SYSTEM_PROMPT,
+                            response_mime_type="application/json",
+                            response_schema=ExhibitsPassExtraction,
+                            temperature=0.0,
+                            max_output_tokens=self.config.max_output_tokens,
+                            thinking_config=types.ThinkingConfig(thinking_budget=1024),
+                        ),
+                    )
+                    if response.parsed is not None and isinstance(
+                        response.parsed, ExhibitsPassExtraction
+                    ):
+                        return response.parsed
+                    if response.text:
+                        return ExhibitsPassExtraction.model_validate_json(response.text)
+                    raise RuntimeError("Pass 3 exhibits extraction returned empty response.")
+                except Exception as exc:
+                    last_err = exc
+                    err_str = str(exc)
+                    if any(
+                        fatal in err_str
+                        for fatal in ("404", "NOT_FOUND", "EOF while parsing", "json_invalid", "validation error")
+                    ):
+                        logger.warning(
+                            "Pass 3 %s encountered non-retryable error (%s). Falling back to next model.",
+                            model_name,
+                            err_str,
+                        )
+                        break
+                    if attempt < self.config.max_retries:
+                        time.sleep(backoff)
+                        backoff *= 2.0
+
+        raise RuntimeError(
+            f"Pass 3 exhibits extraction failed across models {models_to_try}: {last_err}"
+        ) from last_err
+
+    def _extract_single_pass(
         self,
         *,
+        pdf_part: types.Part,
         document_id: str,
         gcs_pdf_uri: str,
-        pdf_bytes: bytes | None = None,
-        project_id: str = "prj_cedar_lantern_wind",
-        landowner_id: str | None = None,
+        project_id: str,
+        landowner_id: str | None,
     ) -> GeminiContractExtraction:
-        """Call Gemini with Structured Outputs and run deterministic post-processing normalization."""
-        pdf_part = self._build_pdf_part(gcs_pdf_uri=gcs_pdf_uri, pdf_bytes=pdf_bytes)
+        """Legacy single-pass extraction engine for backward compatibility and fallback."""
         models_to_try = [self.config.gemini_model]
         if (
             self.config.gemini_fallback_model
@@ -176,7 +324,7 @@ class GeminiContractParser:
             for attempt in range(1, self.config.max_retries + 1):
                 try:
                     logger.info(
-                        "Invoking Gemini model %s (attempt %d/%d) on %s",
+                        "Single-pass: Invoking Gemini model %s (attempt %d/%d) on %s",
                         model_name,
                         attempt,
                         self.config.max_retries,
@@ -189,7 +337,7 @@ class GeminiContractParser:
                             "Parse this complete legal contract PDF into its lossless hierarchical clause tree, defined terms dictionary, exhibits catalog, normalized landowner special conditions / site constraints, and counterparty names.",
                         ],
                         config=types.GenerateContentConfig(
-                            system_instruction=SYSTEM_PROMPT,
+                            system_instruction=SINGLE_PASS_SYSTEM_PROMPT,
                             response_mime_type="application/json",
                             response_schema=GeminiContractExtraction,
                             temperature=0.0,
@@ -213,13 +361,12 @@ class GeminiContractParser:
                     last_err = exc
                     err_str = str(exc)
                     logger.warning(
-                        "Gemini %s attempt %d failed: %s",
+                        "Single-pass Gemini %s attempt %d failed: %s",
                         model_name,
                         attempt,
                         err_str,
                     )
                     if "404" in err_str or "NOT_FOUND" in err_str:
-                        # Immediately try fallback model if model name is unavailable in region
                         break
                     if attempt < self.config.max_retries:
                         time.sleep(backoff)
@@ -234,6 +381,109 @@ class GeminiContractParser:
 
         return normalize_and_enrich_extraction(
             extraction=raw_extraction,
+            document_id=document_id,
+            gcs_pdf_uri=gcs_pdf_uri,
+            project_id=project_id,
+            landowner_id=landowner_id,
+        )
+
+    def extract(
+        self,
+        *,
+        document_id: str,
+        gcs_pdf_uri: str,
+        pdf_bytes: bytes | None = None,
+        project_id: str = "prj_cedar_lantern_wind",
+        landowner_id: str | None = None,
+    ) -> GeminiContractExtraction:
+        """Extract structured contract hierarchy using Option 3A Semantic Zone Multi-Pass Pipeline."""
+        pdf_part = self._build_pdf_part(gcs_pdf_uri=gcs_pdf_uri, pdf_bytes=pdf_bytes)
+
+        if not self.config.multi_pass_enabled:
+            logger.info("Multi-pass extraction disabled via configuration; routing to single-pass.")
+            return self._extract_single_pass(
+                pdf_part=pdf_part,
+                document_id=document_id,
+                gcs_pdf_uri=gcs_pdf_uri,
+                project_id=project_id,
+                landowner_id=landowner_id,
+            )
+
+        # Pass 1: Structure & Zone Discovery
+        try:
+            index = self._discover_contract_structure(pdf_part)
+        except Exception as disc_exc:
+            logger.warning(
+                "Pass 1 structural discovery failed: %s. Gracefully degrading to single-pass extraction.",
+                disc_exc,
+            )
+            return self._extract_single_pass(
+                pdf_part=pdf_part,
+                document_id=document_id,
+                gcs_pdf_uri=gcs_pdf_uri,
+                project_id=project_id,
+                landowner_id=landowner_id,
+            )
+
+        logger.info(
+            "Pass 1 discovered '%s' (body pp. %d–%d, %d exhibits, %d signers)",
+            index.document_title,
+            index.body_start_page,
+            index.body_end_page,
+            len(index.exhibits),
+            len(index.signers),
+        )
+
+        # Eagerly initialize client before thread pool dispatch
+        _ = self.client
+
+        # Concurrent Pass 2 (Body) & Pass 3 (Exhibits)
+        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
+            future_body = executor.submit(self._extract_body_pass, pdf_part, index)
+            future_exhibits = (
+                executor.submit(self._extract_exhibits_pass, pdf_part, index)
+                if index.exhibits
+                else None
+            )
+
+            body_pass = future_body.result(timeout=self.config.pass_timeout_seconds)
+
+            if future_exhibits is not None:
+                try:
+                    exhibits_pass = future_exhibits.result(
+                        timeout=self.config.pass_timeout_seconds
+                    )
+                except Exception as ex_exc:
+                    logger.warning(
+                        "Pass 3 exhibits extraction failed: %s. Assembling degraded bundle with body only.",
+                        ex_exc,
+                    )
+                    exhibits_pass = ExhibitsPassExtraction()
+            else:
+                exhibits_pass = ExhibitsPassExtraction()
+
+        # Compute total pages from discovered boundaries
+        total_pages = index.body_end_page
+        if index.exhibits:
+            total_pages = max(
+                total_pages,
+                max((e.page_end for e in index.exhibits), default=total_pages),
+            )
+        sig_page = index.signature_end_page or index.signature_start_page
+        if sig_page:
+            total_pages = max(total_pages, sig_page)
+
+        # Assemble unified raw bundle
+        raw_bundle = assemble_multi_pass_extraction(
+            index=index,
+            body_pass=body_pass,
+            exhibits_pass=exhibits_pass,
+            total_pages=total_pages,
+        )
+
+        # Domain normalization, regex enrichment, and tree sorting
+        return normalize_and_enrich_extraction(
+            extraction=raw_bundle,
             document_id=document_id,
             gcs_pdf_uri=gcs_pdf_uri,
             project_id=project_id,
@@ -547,7 +797,11 @@ def _normalize_special_conditions(
         src_clause = clauses_by_id[sc.node_id]
         sc.document_id = document_id
         sc.canonical_path = src_clause.canonical_path
-        sc.page_number = max(1, sc.page_number if sc.page_number >= 1 else src_clause.page_start)
+        sc.page_number = (
+            src_clause.page_start
+            if (not sc.page_number or sc.page_number == 1) and src_clause.page_start > 1
+            else max(1, sc.page_number)
+        )
         sc.extraction_confidence = min(1.0, max(0.0, float(sc.extraction_confidence)))
         if sc.hitl_status != HITLStatus.APPROVED_BY_HUMAN:
             sc.hitl_status = HITLStatus.FLAGGED_FOR_REVIEW
@@ -911,5 +1165,6 @@ def normalize_and_enrich_extraction(
             else:
                 clause.hitl_status = HITLStatus.VERIFIED_AUTO
 
+    extraction.clauses = sort_clauses_in_document_order(extraction.clauses)
     return extraction
 
