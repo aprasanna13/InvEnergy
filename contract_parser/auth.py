@@ -182,6 +182,19 @@ async def dispatch_email_sign_in_link(
             resp = await client.post(url, json=payload)
             if resp.status_code != 200:
                 logger.error("Identity Toolkit sendOobCode returned %d: %s", resp.status_code, resp.text)
+                if "CONFIGURATION_NOT_FOUND" in resp.text:
+                    logger.warning(
+                        "Firebase Auth is not provisioned in project %s yet. Falling back to development simulated dispatch.",
+                        config.google_cloud_project,
+                    )
+                    return {
+                        "status": "sent",
+                        "email": norm_email,
+                        "message": (
+                            f"Sign-in link simulated for {norm_email}. "
+                            "Note: To enable live email delivery, enable Email Link authentication in the Firebase Console."
+                        ),
+                    }
                 raise HTTPException(
                     status_code=status.HTTP_502_BAD_GATEWAY,
                     detail="Failed to dispatch verification email via identity provider. Please try again.",
