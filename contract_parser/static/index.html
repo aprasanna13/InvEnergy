@@ -3427,6 +3427,19 @@
         // Fallback if Firebase SDK failed to load
         showLoginError("Identity provider SDK could not be loaded. Please check your network or ad-blocker.");
       }
+    }
+
+    // Explicit event listener wiring for resilience
+    document.addEventListener("DOMContentLoaded", () => {
+      const submitBtn = document.getElementById("login-submit-btn");
+      if (submitBtn) {
+        submitBtn.addEventListener("click", (e) => {
+          e.preventDefault();
+          requestSignInLink();
+        });
+      }
+    });
+
     initAuth();
   </script>
 

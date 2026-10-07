@@ -148,4 +148,10 @@
   * Added dynamic role-based UI adaptation (`applyUserRolePermissions`) disabling file inputs, upload buttons, and displaying user role badges (`👤 email (Admin)` vs `👤 email (Viewer)`).
 - Added comprehensive hermetic test suite `tests/test_cr7_auth.py` and updated regression test suites across the repository.
 
+## [0.8.1] - 2026-10-07
+- Fixed JavaScript syntax error in `contract_parser/static/index.html` where an unclosed brace in `initAuth()` caused an `Unexpected end of input` script compilation error.
+- Restored event handling on the "Send Sign-In Link" button (`#login-submit-btn`), ensuring `requestSignInLink()` executes correctly.
+- Added explicit `DOMContentLoaded` event listener binding to `#login-submit-btn` for event handling resilience.
+
+
 
