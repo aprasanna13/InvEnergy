@@ -95,6 +95,20 @@
 - Implemented dedicated FastAPI route handlers in `contract_parser/app.py` for `/favicon.ico`, `/favicon-32x32.png`, and `/apple-touch-icon.png` returning proper MIME types and Cache-Control headers.
 - Integrated the Invenergy icon into the page navigation header brand title (`.brand-title`) and the authentication login modal in `contract_parser/static/index.html`.
 
+## [0.7.2] - 2026-10-07
+- Implemented role-based DOM disabling for new read-only viewer account (`invtest123` / `invtest123`).
+- Added `applyUserPermissions(user)` in `contract_parser/static/index.html` to dynamically configure DOM elements based on authenticated session:
+  * When logged in as `invtest123`:
+    - Disables file input chooser (`#pdf-upload-input`) with `opacity: 0.45` and `cursor: not-allowed`.
+    - Disables upload button (`#upload-btn`) with `opacity: 0.45` and `cursor: not-allowed`.
+    - Updates executive header user badge to `👤 invtest123 (Read-Only)`.
+    - Adds runtime guard in `uploadPdf()` and `hideExtractionModal()` preventing re-enablement or accidental execution.
+  * When logged in as `google123` (Admin):
+    - Restores full read/write capabilities, active file selector, and `Upload & Parse PDF` button.
+    - Updates user badge to `👤 google123`.
+- Added automated hermetic test `test_invtest123_read_only_dom_controls` in `tests/test_cr6_progress_system.py`.
+
+
 
 
 

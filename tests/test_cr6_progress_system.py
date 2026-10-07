@@ -87,3 +87,15 @@ def test_invenergy_icon_and_favicon():
     res_apple = client.get("/apple-touch-icon.png")
     assert res_apple.status_code == 200
     assert res_apple.headers.get("content-type") == "image/png"
+
+
+def test_invtest123_read_only_dom_controls():
+    """Verify invtest123 user authentication recognition and DOM upload disabling."""
+    content = INDEX_HTML_PATH.read_text(encoding="utf-8")
+    assert 'invtest123' in content
+    assert 'applyUserPermissions(user)' in content
+    assert 'input.disabled = true' in content
+    assert 'btn.disabled = true' in content
+    assert '👤 invtest123 (Read-Only)' in content
+    assert 'currentUser === "invtest123"' in content
+

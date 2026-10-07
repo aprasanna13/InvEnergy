@@ -1661,7 +1661,16 @@
 
       const btn = document.getElementById("upload-btn");
       if (btn) {
-        btn.disabled = false;
+        const currentUser = sessionStorage.getItem("invenergy_auth_user");
+        if (currentUser === "invtest123") {
+          btn.disabled = true;
+          btn.style.opacity = "0.45";
+          btn.style.cursor = "not-allowed";
+        } else {
+          btn.disabled = false;
+          btn.style.opacity = "1";
+          btn.style.cursor = "pointer";
+        }
         btn.textContent = "Upload & Parse PDF";
       }
     }
@@ -1911,6 +1920,11 @@
     }
 
     async function uploadPdf() {
+      const currentUser = sessionStorage.getItem("invenergy_auth_user");
+      if (currentUser === "invtest123") {
+        displayGlobalErrorToast("Action disabled: Uploads are disabled for read-only user (invtest123).");
+        return;
+      }
       const input = document.getElementById("pdf-upload-input");
       if (!input.files || !input.files[0]) {
         alert("Choose a PDF file first.");
@@ -3031,21 +3045,66 @@
       feed.scrollTop = feed.scrollHeight;
     }
 
-    /* CR-5 Static Demo Authentication Handlers (google123 / google123) */
+    /* User Authentication & Role Permissions:
+       - google123 / google123: Admin role with full read, write, and upload/parse capabilities.
+       - invtest123 / invtest123: Viewer role with read-only capabilities; upload file input and parse buttons disabled on the DOM.
+    */
+    function applyUserPermissions(user) {
+      const input = document.getElementById("pdf-upload-input");
+      const btn = document.getElementById("upload-btn");
+      const badge = document.getElementById("user-badge");
+
+      if (user === "invtest123") {
+        if (input) {
+          input.disabled = true;
+          input.style.opacity = "0.45";
+          input.style.cursor = "not-allowed";
+          input.title = "Uploads are disabled for read-only user (invtest123)";
+        }
+        if (btn) {
+          btn.disabled = true;
+          btn.style.opacity = "0.45";
+          btn.style.cursor = "not-allowed";
+          btn.title = "Upload & Parse is disabled for read-only user (invtest123)";
+        }
+        if (badge) {
+          badge.innerHTML = `<span>👤 invtest123 (Read-Only)</span><button class="logout-btn" onclick="handleLogout()" title="Sign out of workspace">Sign Out</button>`;
+        }
+      } else {
+        if (input) {
+          input.disabled = false;
+          input.style.opacity = "1";
+          input.style.cursor = "default";
+          input.title = "";
+        }
+        if (btn) {
+          btn.disabled = false;
+          btn.style.opacity = "1";
+          btn.style.cursor = "pointer";
+          btn.title = "";
+        }
+        if (badge) {
+          badge.innerHTML = `<span>👤 google123</span><button class="logout-btn" onclick="handleLogout()" title="Sign out of workspace">Sign Out</button>`;
+        }
+      }
+    }
+
     function checkAuthSession() {
       const user = sessionStorage.getItem("invenergy_auth_user");
       const overlay = document.getElementById("login-overlay");
       const shell = document.getElementById("app-shell");
       const fab = document.getElementById("bq-agent-fab");
-      if (user === "google123") {
+      if (user === "google123" || user === "invtest123") {
         if (overlay) overlay.style.display = "none";
         if (shell) shell.style.display = "flex";
         if (fab) fab.style.display = "flex";
+        applyUserPermissions(user);
         loadPortfolioHierarchy();
       } else {
         if (overlay) overlay.style.display = "flex";
         if (shell) shell.style.display = "none";
         if (fab) fab.style.display = "none";
+        applyUserPermissions(null);
         const userInput = document.getElementById("login-username");
         if (userInput) userInput.focus();
       }
@@ -3058,8 +3117,9 @@
       const username = (uInput ? uInput.value : "").trim();
       const password = (pInput ? pInput.value : "");
 
-      if (username === "google123" && password === "google123") {
-        sessionStorage.setItem("invenergy_auth_user", "google123");
+      if ((username === "google123" && password === "google123") ||
+          (username === "invtest123" && password === "invtest123")) {
+        sessionStorage.setItem("invenergy_auth_user", username);
         if (errBox) {
           errBox.style.display = "none";
           errBox.textContent = "";
@@ -3067,7 +3127,7 @@
         checkAuthSession();
       } else {
         if (errBox) {
-          errBox.textContent = "Invalid credentials. Please enter username 'google123' and password 'google123'.";
+          errBox.textContent = "Invalid credentials. Please enter valid workspace credentials.";
           errBox.style.display = "block";
         }
         if (pInput) {
@@ -3090,6 +3150,7 @@
       }
       const bqWin = document.getElementById("bq-agent-window");
       if (bqWin) bqWin.style.display = "none";
+      applyUserPermissions(null);
       checkAuthSession();
     }
 
