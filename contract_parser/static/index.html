@@ -828,7 +828,7 @@
       overflow: hidden;
     }
     .bq-agent-window.open {
-      display: flex;
+      display: flex !important;
     }
     .bq-agent-window.expanded {
       width: 680px;
@@ -2864,8 +2864,9 @@
     function toggleBqAgentWindow() {
       const win = document.getElementById("bq-agent-window");
       if (!win) return;
-      win.classList.toggle("open");
-      if (win.classList.contains("open")) {
+      const isOpen = win.classList.toggle("open");
+      win.style.display = isOpen ? "flex" : "none";
+      if (isOpen) {
         const input = document.getElementById("bq-agent-input");
         if (input) input.focus();
       }
@@ -3104,6 +3105,11 @@
         if (overlay) overlay.style.display = "flex";
         if (shell) shell.style.display = "none";
         if (fab) fab.style.display = "none";
+        const bqWin = document.getElementById("bq-agent-window");
+        if (bqWin) {
+          bqWin.classList.remove("open");
+          bqWin.style.display = "none";
+        }
         applyUserPermissions(null);
         const userInput = document.getElementById("login-username");
         if (userInput) userInput.focus();
@@ -3149,7 +3155,10 @@
         errBox.textContent = "";
       }
       const bqWin = document.getElementById("bq-agent-window");
-      if (bqWin) bqWin.style.display = "none";
+      if (bqWin) {
+        bqWin.classList.remove("open");
+        bqWin.style.display = "none";
+      }
       applyUserPermissions(null);
       checkAuthSession();
     }

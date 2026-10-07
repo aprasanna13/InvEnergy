@@ -99,3 +99,16 @@ def test_invtest123_read_only_dom_controls():
     assert '👤 invtest123 (Read-Only)' in content
     assert 'currentUser === "invtest123"' in content
 
+
+def test_bq_agent_fab_window_toggle_lifecycle():
+    """Verify BigQuery Conversational Agent FAB and window display toggle lifecycle."""
+    content = INDEX_HTML_PATH.read_text(encoding="utf-8")
+    assert ".bq-agent-window.open {" in content
+    assert "display: flex !important;" in content
+    assert "function toggleBqAgentWindow()" in content
+    assert 'const isOpen = win.classList.toggle("open");' in content
+    assert 'win.style.display = isOpen ? "flex" : "none";' in content
+    assert 'bqWin.classList.remove("open");' in content
+    assert 'bqWin.style.display = "none";' in content
+
+

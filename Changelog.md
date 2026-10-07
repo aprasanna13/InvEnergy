@@ -115,6 +115,14 @@
   * Updated `applyUserPermissions` to set user badge to `👤 Workspace User`.
   * Removed credential reference from the login overlay markup comments.
 
+## [0.7.4] - 2026-10-07
+- Fixed Ask Agent floating action button (`#bq-agent-fab`) and chat window (`#bq-agent-window`) display toggle lifecycle:
+  * Added `display: flex !important;` to `.bq-agent-window.open` CSS rule to prevent inline styles from suppressing modal rendering.
+  * Synchronized `win.style.display = isOpen ? "flex" : "none"` directly in `toggleBqAgentWindow()` upon class toggle and set focus on `#bq-agent-input`.
+  * Updated `handleLogout()` and `checkAuthSession()` to cleanly remove `.open` and set `style.display = "none"`, preventing stale hidden states across authentication lifecycles.
+  * Added regression test `test_bq_agent_fab_window_toggle_lifecycle` in `tests/test_cr6_progress_system.py`.
+
+
 
 
 
