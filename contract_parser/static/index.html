@@ -1373,7 +1373,7 @@
     </div>
   </div>
 
-  <!-- CR-5 Static Demo Login Screen Overlay (Credentials: google123 / google123) -->
+  <!-- Static Demo Login Screen Overlay -->
   <div id="login-overlay" class="login-overlay" style="display:flex;">
     <div class="login-card">
       <div class="login-header">
@@ -1437,7 +1437,7 @@
       <button onclick="downloadCsv('exhibits_catalog.csv')">exhibits_catalog.csv</button>
       <button onclick="downloadCsv('special_conditions.csv')">special_conditions.csv</button>
       <div class="user-badge" id="user-badge">
-        <span>👤 google123</span>
+        <span>👤 Workspace User</span>
         <button class="logout-btn" onclick="handleLogout()" title="Sign out of workspace">Sign Out</button>
       </div>
     </div>
@@ -3084,7 +3084,7 @@
           btn.title = "";
         }
         if (badge) {
-          badge.innerHTML = `<span>👤 google123</span><button class="logout-btn" onclick="handleLogout()" title="Sign out of workspace">Sign Out</button>`;
+          badge.innerHTML = `<span>👤 Workspace User</span><button class="logout-btn" onclick="handleLogout()" title="Sign out of workspace">Sign Out</button>`;
         }
       }
     }
@@ -3127,7 +3127,7 @@
         checkAuthSession();
       } else {
         if (errBox) {
-          errBox.textContent = "Invalid credentials. Please enter valid workspace credentials.";
+          errBox.textContent = "Please enter valid user name and pwd.";
           errBox.style.display = "block";
         }
         if (pInput) {

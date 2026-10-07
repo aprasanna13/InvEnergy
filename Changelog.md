@@ -108,6 +108,14 @@
     - Updates user badge to `👤 google123`.
 - Added automated hermetic test `test_invtest123_read_only_dom_controls` in `tests/test_cr6_progress_system.py`.
 
+## [0.7.3] - 2026-10-07
+- Updated login failure notification message in `contract_parser/static/index.html` to: `"Please enter valid user name and pwd."`.
+- Removed `google123` from UI screen display:
+  * Updated top navigation header badge from `👤 google123` to `👤 Workspace User`.
+  * Updated `applyUserPermissions` to set user badge to `👤 Workspace User`.
+  * Removed credential reference from the login overlay markup comments.
+
+
 
 
 
