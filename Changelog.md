@@ -122,6 +122,13 @@
   * Updated `handleLogout()` and `checkAuthSession()` to cleanly remove `.open` and set `style.display = "none"`, preventing stale hidden states across authentication lifecycles.
   * Added regression test `test_bq_agent_fab_window_toggle_lifecycle` in `tests/test_cr6_progress_system.py`.
 
+## [0.7.5] - 2026-10-07
+- Added persistent enterprise AI legal disclaimer in BigQuery Conversational Agent chat window (`#bq-agent-window`):
+  * Added `.bq-agent-disclaimer` CSS component pinned beneath the input bar (`.bq-agent-input-bar`) styled with Invenergy design system tokens (`var(--neutrals-gray)` text, `var(--neutrals-white)` surface, 11px typography).
+  * Embedded notice copy: `"AI can make mistakes. Please verify all terms and figures against original executed agreements."`
+  * Added automated regression test `test_bq_agent_disclaimer_element` in `tests/test_cr6_progress_system.py`.
+
+
 
 
 

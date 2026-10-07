@@ -112,3 +112,14 @@ def test_bq_agent_fab_window_toggle_lifecycle():
     assert 'bqWin.style.display = "none";' in content
 
 
+def test_bq_agent_disclaimer_element():
+    """Verify presence, positioning, and styling of AI disclaimer in chat window."""
+    content = INDEX_HTML_PATH.read_text(encoding="utf-8")
+    assert ".bq-agent-disclaimer {" in content
+    assert "color: var(--neutrals-gray);" in content
+    assert "background: var(--neutrals-white);" in content
+    assert '<div class="bq-agent-disclaimer">' in content
+    assert "AI can make mistakes. Please verify all terms and figures against original executed agreements." in content
+
+
+

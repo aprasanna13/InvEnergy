@@ -977,6 +977,17 @@
       padding: 7px 10px;
       font-size: 12.5px;
     }
+    .bq-agent-disclaimer {
+      padding: 4px 12px 7px;
+      font-size: 11px;
+      line-height: 1.35;
+      color: var(--neutrals-gray);
+      text-align: center;
+      background: var(--neutrals-white);
+      flex-shrink: 0;
+      user-select: none;
+      letter-spacing: 0.01em;
+    }
 
     /* CR-5 Static Demo Login Screen Overlay */
     .login-overlay {
@@ -3222,6 +3233,9 @@
     <div class="bq-agent-input-bar">
       <input type="text" id="bq-agent-input" placeholder="Ask a question about projects, landowners, or special conditions..." onkeydown="if(event.key==='Enter') sendBqAgentQuestion()" />
       <button id="bq-agent-send-btn" class="primary" type="button" onclick="sendBqAgentQuestion()">Send</button>
+    </div>
+    <div class="bq-agent-disclaimer">
+      <span>AI can make mistakes. Please verify all terms and figures against original executed agreements.</span>
     </div>
   </div>
   </div> <!-- /app-shell -->
