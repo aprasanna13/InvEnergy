@@ -153,5 +153,10 @@
 - Restored event handling on the "Send Sign-In Link" button (`#login-submit-btn`), ensuring `requestSignInLink()` executes correctly.
 - Added explicit `DOMContentLoaded` event listener binding to `#login-submit-btn` for event handling resilience.
 
+## [0.8.2] - 2026-10-07
+- Passed `"canHandleCodeInApp": True` in `accounts:sendOobCode` payload in `contract_parser/auth.py`. This instructs Google Identity Toolkit to construct the action link to return directly to the web application (`continueUrl`), preventing interception by the default Firebase Hosting action handler (`/__/auth/action`) which caused `ProjectConfigService.GetProjectConfig` credential errors.
+- Provisioned the official Firebase Web App (`InvEnergy Contract Parser`) in project `pr-tftest` and configured dedicated Web App API Key (`AIzaSyAfls...`).
+
+
 
 

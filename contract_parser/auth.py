@@ -175,6 +175,7 @@ async def dispatch_email_sign_in_link(
         "requestType": "EMAIL_SIGNIN",
         "email": norm_email,
         "continueUrl": continue_url,
+        "canHandleCodeInApp": True,
     }
 
     try:
