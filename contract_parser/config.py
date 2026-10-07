@@ -77,6 +77,27 @@ class PipelineConfig:
     pass_timeout_seconds: float = field(
         default_factory=lambda: float(os.getenv("PASS_TIMEOUT_SECONDS", "480.0"))
     )
+    auth_enabled: bool = field(
+        default_factory=lambda: os.getenv("AUTH_ENABLED", "true").lower()
+        in ("true", "1", "yes")
+    )
+    firebase_api_key: str = field(
+        default_factory=lambda: os.getenv("FIREBASE_API_KEY", "")
+    )
+    firebase_auth_domain: str = field(
+        default_factory=lambda: os.getenv(
+            "FIREBASE_AUTH_DOMAIN", "pr-tftest.firebaseapp.com"
+        )
+    )
+    admin_email_whitelist: set[str] = field(
+        default_factory=lambda: {
+            e.strip().lower()
+            for e in os.getenv(
+                "ADMIN_EMAIL_WHITELIST", "lead.evaluator@invenergy.com"
+            ).split(",")
+            if e.strip()
+        }
+    )
 
     def ensure_genai_env(self) -> None:
         """Ensure environment variables required by google-genai are set."""

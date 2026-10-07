@@ -1,7 +1,7 @@
 # Change Request CR-5: Semantic Zone Multi-Pass Contract Extraction Pipeline (Option 3A)
 
 * **CR ID:** `CR-005` (Semantic Zone Multi-Pass Contract Extraction Pipeline — `v0.6.0`)
-* **Status:** Drafted & Fortified via EGM Review (`v0.6.0`)
+* **Status:** Ready for Implementation 
 * **Parent Architecture:** [DESIGN_DOC.md](file:///usr/local/google/home/prasannaankem/Code/Invenergy/Design/DESIGN_DOC.md), [CR1_LANDOWNER_SPECIAL_CONDITIONS.md](file:///usr/local/google/home/prasannaankem/Code/Invenergy/Design/CR1_LANDOWNER_SPECIAL_CONDITIONS.md), [CR2_PROJECT_PORTFOLIO_HIERARCHY.md](file:///usr/local/google/home/prasannaankem/Code/Invenergy/Design/CR2_PROJECT_PORTFOLIO_HIERARCHY.md), [CR3_SUBCONTRACTOR_DND_CHECKLIST.md](file:///usr/local/google/home/prasannaankem/Code/Invenergy/Design/CR3_SUBCONTRACTOR_DND_CHECKLIST.md), [CR4_BIGQUERY_DATA_AGENT_CHAT.md](file:///usr/local/google/home/prasannaankem/Code/Invenergy/Design/CR4_BIGQUERY_DATA_AGENT_CHAT.md)
 * **Confirmed Architectural Decisions (Fortified via EGM Review):**
   1. **Prompt-Scoped Zone Boundaries (Option 3A):** Rather than mutating PDF byte streams or maintaining fragile binary slicing dependencies (`pypdf`, `pymupdf`), Option 3A passes the complete PDF to Gemini while strictly bounding the visual attention and extraction scope using prompt-directed physical page intervals (`body_start_page`..`body_end_page` and `exhibit_start_page`..`exhibit_end_page`).

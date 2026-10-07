@@ -11,10 +11,20 @@ import sqlite3
 import sys
 from pathlib import Path
 
-from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, Response
 from pydantic import BaseModel
+
+from contract_parser.auth import (
+    ALLOWED_DOMAINS,
+    UserContext,
+    UserRole,
+    dispatch_email_sign_in_link,
+    get_client_ip,
+    make_auth_dependency,
+    require_admin,
+)
 
 from contract_parser.config import PipelineConfig
 from contract_parser.gemini_parser import (
@@ -40,6 +50,13 @@ from contract_parser.schemas import (
 from contract_parser.storage import ContractStorageService, compute_document_id
 
 logger = logging.getLogger(__name__)
+
+
+class RequestLinkPayload(BaseModel):
+    """Payload for POST /api/v1/auth/request-link."""
+
+    email: str
+    continue_url: str | None = None
 
 
 class BatchIngestRequest(BaseModel):
@@ -303,7 +320,7 @@ def create_app(
 
     fastapi_app = FastAPI(
         title="Hierarchical Contract Parsing & Portfolio Obligation Intelligence",
-        version="0.5.1",
+        version="0.8.0",
         description="Gemini-First Multimodal Contract Hierarchy Parser, 8-Table Portfolio & Field Crew DND Store, BigQuery Data Agent Chat, and pdf.js HITL Review UI",
     )
     fastapi_app.add_middleware(
@@ -316,6 +333,8 @@ def create_app(
     fastapi_app.state.config = cfg
     fastapi_app.state.storage = store
     fastapi_app.state.extractor = parser
+
+    auth_dep = make_auth_dependency(lambda: fastapi_app.state.config)
 
     static_dir = Path(__file__).parent / "static"
 
@@ -339,9 +358,43 @@ def create_app(
     async def serve_apple_touch_icon() -> FileResponse:
         return FileResponse(static_dir / "apple-touch-icon.png", media_type="image/png")
 
+    @fastapi_app.get("/api/v1/auth/config")
+    async def get_auth_config() -> dict[str, object]:
+        active_cfg: PipelineConfig = fastapi_app.state.config
+        return {
+            "auth_enabled": active_cfg.auth_enabled,
+            "firebase_api_key": active_cfg.firebase_api_key,
+            "firebase_auth_domain": active_cfg.firebase_auth_domain,
+            "project_id": active_cfg.google_cloud_project,
+            "allowed_domains": sorted(list(ALLOWED_DOMAINS)),
+        }
+
+    @fastapi_app.post("/api/v1/auth/request-link")
+    async def request_sign_in_link(
+        req: RequestLinkPayload,
+        request: Request,
+    ) -> dict[str, str]:
+        active_cfg: PipelineConfig = fastapi_app.state.config
+        client_ip = get_client_ip(request)
+        default_continue_url = str(request.base_url)
+        continue_url = req.continue_url or default_continue_url
+        return await dispatch_email_sign_in_link(
+            email=req.email,
+            continue_url=continue_url,
+            config=active_cfg,
+            client_ip=client_ip,
+        )
+
+    @fastapi_app.get("/api/v1/auth/me")
+    async def get_current_user_profile(
+        current_user: UserContext = Depends(auth_dep),
+    ) -> dict[str, object]:
+        return current_user.model_dump(mode="json")
+
     @fastapi_app.get("/api/v1/projects")
     async def list_projects_endpoint(
         energy_technology: str | None = None,
+        current_user: UserContext = Depends(auth_dep),
     ) -> dict[str, object]:
         active_store: ContractStorageService = fastapi_app.state.storage
         projects = active_store.list_projects(energy_technology=energy_technology)
@@ -351,7 +404,11 @@ def create_app(
         }
 
     @fastapi_app.post("/api/v1/projects")
-    async def create_project_endpoint(req: CreateProjectRequest) -> dict[str, object]:
+    async def create_project_endpoint(
+        req: CreateProjectRequest,
+        current_user: UserContext = Depends(auth_dep),
+    ) -> dict[str, object]:
+        require_admin(current_user)
         active_store: ContractStorageService = fastapi_app.state.storage
         slug = re.sub(r"[^a-z0-9]+", "_", req.project_name.lower()).strip("_")[:32]
         pid = req.project_id or f"prj_{slug or 'custom'}"
@@ -375,7 +432,10 @@ def create_app(
         return {**dumped, "project": dumped}
 
     @fastapi_app.get("/api/v1/projects/{project_id}/landowners")
-    async def list_project_landowners_endpoint(project_id: str) -> dict[str, object]:
+    async def list_project_landowners_endpoint(
+        project_id: str,
+        current_user: UserContext = Depends(auth_dep),
+    ) -> dict[str, object]:
         active_store: ContractStorageService = fastapi_app.state.storage
         try:
             proj = active_store.get_project(project_id)
@@ -391,6 +451,7 @@ def create_app(
     @fastapi_app.get("/api/v1/landowners")
     async def list_landowners_endpoint(
         project_id: str | None = None,
+        current_user: UserContext = Depends(auth_dep),
     ) -> dict[str, object]:
         active_store: ContractStorageService = fastapi_app.state.storage
         landowners = active_store.list_landowners(project_id=project_id)
@@ -407,6 +468,7 @@ def create_app(
         constraint_category: str | None = None,
         hitl_status: str | None = None,
         q: str | None = None,
+        current_user: UserContext = Depends(auth_dep),
     ) -> dict[str, object]:
         active_store: ContractStorageService = fastapi_app.state.storage
         return active_store.search_portfolio(
@@ -424,7 +486,9 @@ def create_app(
         file: UploadFile = File(...),
         project_id: str = Form("prj_cedar_lantern_wind"),
         landowner_id: str | None = Form(None),
+        current_user: UserContext = Depends(auth_dep),
     ) -> dict[str, object]:
+        require_admin(current_user)
         if not file.filename or not file.filename.lower().endswith(".pdf"):
             raise HTTPException(status_code=400, detail="Only .pdf files are supported")
         pdf_bytes = await file.read()
@@ -444,7 +508,11 @@ def create_app(
         return payload
 
     @fastapi_app.post("/api/v1/documents/ingest-gcs")
-    async def ingest_from_gcs(req: BatchIngestRequest) -> dict[str, object]:
+    async def ingest_from_gcs(
+        req: BatchIngestRequest,
+        current_user: UserContext = Depends(auth_dep),
+    ) -> dict[str, object]:
+        require_admin(current_user)
         active_store: ContractStorageService = fastapi_app.state.storage
         target = req.gcs_uri_or_prefix
         if target.startswith("gs://") and target.lower().endswith(".pdf"):
@@ -472,6 +540,7 @@ def create_app(
         project_id: str | None = None,
         landowner_id: str | None = None,
         energy_technology: str | None = None,
+        current_user: UserContext = Depends(auth_dep),
     ) -> dict[str, object]:
         active_store: ContractStorageService = fastapi_app.state.storage
         active_store.ensure_portfolio_seed()
@@ -486,7 +555,10 @@ def create_app(
         }
 
     @fastapi_app.get("/api/v1/documents/{document_id}")
-    async def get_document(document_id: str) -> dict[str, object]:
+    async def get_document(
+        document_id: str,
+        current_user: UserContext = Depends(auth_dep),
+    ) -> dict[str, object]:
         active_store: ContractStorageService = fastapi_app.state.storage
         try:
             bundle = active_store.get_bundle(document_id)
@@ -497,7 +569,11 @@ def create_app(
         return payload
 
     @fastapi_app.get("/api/v1/documents/{document_id}/pdf")
-    async def stream_document_pdf(document_id: str, request: Request) -> Response:
+    async def stream_document_pdf(
+        document_id: str,
+        request: Request,
+        current_user: UserContext = Depends(auth_dep),
+    ) -> Response:
         active_store: ContractStorageService = fastapi_app.state.storage
         try:
             pdf_bytes = active_store.read_pdf_bytes(document_id)
@@ -544,8 +620,14 @@ def create_app(
 
     @fastapi_app.patch("/api/v1/documents/{document_id}/clauses/{node_id}")
     async def review_clause_endpoint(
-        document_id: str, node_id: str, review: ClauseReviewRequest
+        document_id: str,
+        node_id: str,
+        review: ClauseReviewRequest,
+        current_user: UserContext = Depends(auth_dep),
     ) -> dict[str, object]:
+        require_admin(current_user)
+        if not review.reviewed_by:
+            review.reviewed_by = current_user.email
         active_store: ContractStorageService = fastapi_app.state.storage
         try:
             updated_clause, updated_doc = active_store.review_clause(
@@ -574,6 +656,7 @@ def create_app(
         document_id: str,
         construction_trade: str | None = None,
         severity_level: str | None = None,
+        current_user: UserContext = Depends(auth_dep),
     ) -> dict[str, object]:
         active_store: ContractStorageService = fastapi_app.state.storage
         try:
@@ -590,7 +673,10 @@ def create_app(
     async def record_document_dnd_signoff_endpoint(
         document_id: str,
         req: CreateDNDSignoffRequest,
+        current_user: UserContext = Depends(auth_dep),
     ) -> dict[str, object]:
+        if not req.foreman_name:
+            req.foreman_name = current_user.email
         active_store: ContractStorageService = fastapi_app.state.storage
         try:
             checklist = active_store.record_dnd_checklist_signoff(
@@ -604,7 +690,11 @@ def create_app(
         return checklist.model_dump(mode="json")
 
     @fastapi_app.get("/api/v1/documents/{document_id}/export/{csv_name}")
-    async def export_csv_endpoint(document_id: str, csv_name: str) -> Response:
+    async def export_csv_endpoint(
+        document_id: str,
+        csv_name: str,
+        current_user: UserContext = Depends(auth_dep),
+    ) -> Response:
         active_store: ContractStorageService = fastapi_app.state.storage
         try:
             csv_bytes = active_store.get_csv_bytes(document_id=document_id, csv_name=csv_name)
@@ -621,7 +711,9 @@ def create_app(
         )
 
     @fastapi_app.get("/api/v1/agent/info")
-    async def get_bigquery_agent_info_endpoint() -> dict[str, str]:
+    async def get_bigquery_agent_info_endpoint(
+        current_user: UserContext = Depends(auth_dep),
+    ) -> dict[str, str]:
         active_cfg: PipelineConfig = fastapi_app.state.config
         proj, loc, data_agent_resource = active_cfg.resolve_data_agent_resource()
         return {
@@ -634,6 +726,7 @@ def create_app(
     @fastapi_app.post("/api/v1/agent/chat")
     async def chat_with_bigquery_agent_endpoint(
         req: AgentChatRequest,
+        current_user: UserContext = Depends(auth_dep),
     ) -> dict[str, object]:
         active_cfg: PipelineConfig = fastapi_app.state.config
         active_store: ContractStorageService = fastapi_app.state.storage

@@ -89,15 +89,13 @@ def test_invenergy_icon_and_favicon():
     assert res_apple.headers.get("content-type") == "image/png"
 
 
-def test_invtest123_read_only_dom_controls():
-    """Verify invtest123 user authentication recognition and DOM upload disabling."""
+def test_viewer_read_only_dom_controls():
+    """Verify viewer user role recognition and DOM upload disabling (CR-7)."""
     content = INDEX_HTML_PATH.read_text(encoding="utf-8")
-    assert 'invtest123' in content
-    assert 'applyUserPermissions(user)' in content
-    assert 'input.disabled = true' in content
-    assert 'btn.disabled = true' in content
-    assert '👤 invtest123 (Read-Only)' in content
-    assert 'currentUser === "invtest123"' in content
+    assert 'applyUserRolePermissions(profile)' in content
+    assert 'input.disabled = !isAdmin;' in content
+    assert 'btn.disabled = !isAdmin;' in content
+    assert 'VIEWER' in content
 
 
 def test_bq_agent_fab_window_toggle_lifecycle():

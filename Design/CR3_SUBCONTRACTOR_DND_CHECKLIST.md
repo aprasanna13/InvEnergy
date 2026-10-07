@@ -1,7 +1,7 @@
 # Change Request CR-3: Subcontractor / Construction Field Crew "Do-Not-Disturb" (DND) Checklist
 
 * **CR ID:** `CR-003` (Requirement `R6` from Oct 1, 2026 Invenergy–Google Sync)
-* **Status:** Reviewed & Ready for Implementation
+* **Status:** Ready for Implementation 
 * **Parent Architecture:** [DESIGN_DOC.md](file:///usr/local/google/home/prasannaankem/Code/Invenergy/Design/DESIGN_DOC.md), [CR1_LANDOWNER_SPECIAL_CONDITIONS.md](file:///usr/local/google/home/prasannaankem/Code/Invenergy/Design/CR1_LANDOWNER_SPECIAL_CONDITIONS.md), [CR2_PROJECT_PORTFOLIO_HIERARCHY.md](file:///usr/local/google/home/prasannaankem/Code/Invenergy/Design/CR2_PROJECT_PORTFOLIO_HIERARCHY.md)
 * **Confirmed Design Decisions:**
   1. **Single-Contract / Document Scoping (`document_id` — Option 1B):** Generate each Field Crew "Do-Not-Disturb" (DND) Checklist strictly scoped to a single selected contract PDF (`document_id`), while surfacing the parent Project (`project_id`, `erp_project_code`, `energy_technology`) and Landowner (`landowner_id`, `landowner_name`, `parcel_summary`) context in the checklist header.

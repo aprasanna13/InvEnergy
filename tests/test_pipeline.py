@@ -758,6 +758,7 @@ def test_storage_append_only_deduplication_and_fastapi_endpoints(tmp_path: Path)
         local_data_dir=tmp_path / "data",
         use_cloud_storage=False,
         use_bigquery=False,
+        auth_enabled=False,
     )
     store = ContractStorageService(cfg)
     extractor = HermeticFixtureExtractor()
@@ -965,6 +966,7 @@ def test_cr1_landowner_special_conditions_multi_constraint_and_hitl_cascade(tmp_
         local_data_dir=tmp_path / "cr1_data",
         use_cloud_storage=False,
         use_bigquery=False,
+        auth_enabled=False,
     )
     store = ContractStorageService(cfg)
     client = TestClient(create_app(config=cfg, storage_service=store, extractor=CR1FixtureExtractor()))
@@ -1187,6 +1189,7 @@ def test_cr2_project_portfolio_hierarchy_and_centralized_search(tmp_path: Path) 
         local_data_dir=tmp_path / "cr2_data",
         use_cloud_storage=False,
         use_bigquery=False,
+        auth_enabled=False,
     )
     store = ContractStorageService(cfg)
     client = TestClient(
@@ -1562,6 +1565,7 @@ def test_cr3_subcontractor_dnd_checklist_and_signoff(tmp_path: Path) -> None:
         local_data_dir=tmp_path / "cr3_data",
         use_cloud_storage=False,
         use_bigquery=False,
+        auth_enabled=False,
     )
     store = ContractStorageService(cfg)
     extractor = CR3DndFixtureExtractor()
@@ -1870,6 +1874,7 @@ def test_cr4_bigquery_data_agent_urn_and_chat_proxy(
         local_data_dir=tmp_path / "cr4_data",
         use_cloud_storage=False,
         use_bigquery=False,
+        auth_enabled=False,
     )
     store = ContractStorageService(cfg)
 
@@ -1917,9 +1922,8 @@ def test_cr4_bigquery_data_agent_urn_and_chat_proxy(
     ui_res = client.get("/")
     assert ui_res.status_code == 200
     assert 'id="login-overlay"' in ui_res.text
-    assert 'id="login-username"' in ui_res.text
-    assert 'id="login-password"' in ui_res.text
-    assert "google123" in ui_res.text
+    assert 'id="login-email"' in ui_res.text
+    assert 'id="login-submit-btn"' in ui_res.text
     assert 'id="bq-agent-fab"' in ui_res.text
     assert 'id="bq-agent-window"' in ui_res.text
     assert "Ask Agent" in ui_res.text

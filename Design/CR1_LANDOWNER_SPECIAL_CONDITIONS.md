@@ -1,7 +1,7 @@
 # Change Request CR-1: Landowner "Special Conditions" & Physical Site Constraint Extraction (R1)
 
 * **CR ID:** `CR-001` (Requirement `R1` from Oct 1, 2026 Invenergy–Google Sync)
-* **Status:** Reviewed & Fortified via `/egm-review` (Goldfish Comprehension, Critic & Readiness Passed) — Ready for `/design-implement`
+* **Status:** Ready for Implementation 
 * **Parent Architecture:** [DESIGN_DOC.md](file:///usr/local/google/home/prasannaankem/Code/Invenergy/Design/DESIGN_DOC.md)
 * **Confirmed Design Decisions:**
   1. **Single-PDF Extraction Mode (Option 1A):** Extract all actionable physical/operational site constraints and explicit landowner riders directly from each ingested contract PDF without requiring an external baseline template diff.

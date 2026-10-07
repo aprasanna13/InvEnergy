@@ -129,9 +129,23 @@
   * Added automated regression test `test_bq_agent_disclaimer_element` in `tests/test_cr6_progress_system.py`.
 
 
-
-
-
-
+## [0.8.0] - 2026-10-07
+- Implemented Enterprise Passwordless Email Link Authentication and Domain-Gated Access Control (CR-7).
+- Replaced static demo credentials (`google123`/`invtest123`) with Google Cloud Identity Platform (Identity Toolkit REST API) passwordless magic link dispatch.
+- Enforced strict corporate domain whitelisting allowing only `@invenergy.com` and `@google.com` identities with instant client-side regex feedback and server-side HTTP 403 gate.
+- Built sliding-window in-memory rate limiting on link generation: max 5 requests per 10 minutes per client IP (parsed via `X-Forwarded-For`), and max 3 requests per 15 minutes per recipient email.
+- Enforced Zero-Trust Bearer ID token validation on all `/api/v1/*` routes with public bypasses reserved strictly for `/api/v1/auth/config` and `/api/v1/auth/request-link`.
+- Implemented Role-Based Access Control (RBAC):
+  * Admin role: `@google.com` identities and `ADMIN_EMAIL_WHITELIST` accounts receive full write permissions (PDF upload, GCS ingestion, clause HITL review approvals).
+  * Viewer role: `@invenergy.com` identities receive read-only access (search, PDF viewing, CSV exports, BigQuery Conversational Agent) and are blocked from mutations with HTTP 403.
+- Integrated non-repudiation identity stamping: `reviewed_by` assigned from authenticated `current_user.email` on clause reviews, and `foreman_name` on DND tailgate signoffs.
+- Overhauled frontend authentication and token injection in `contract_parser/static/index.html`:
+  * Replaced static password form with passwordless email dispatch card and inline rate-limit feedback.
+  * Added cross-device and incognito sign-in confirmation modal with URL parameter sanitization (`apiKey` and `oobCode` stripped via `window.history.replaceState`).
+  * Implemented universal `window.fetch` interceptor automatically injecting active Bearer ID tokens and refreshing expiring tokens.
+  * Integrated PDF.js Web Worker `httpHeaders` authorization passing for stream-protected contract PDFs.
+  * Implemented authenticated fetch-blob download workflow for CSV exports.
+  * Added dynamic role-based UI adaptation (`applyUserRolePermissions`) disabling file inputs, upload buttons, and displaying user role badges (`👤 email (Admin)` vs `👤 email (Viewer)`).
+- Added comprehensive hermetic test suite `tests/test_cr7_auth.py` and updated regression test suites across the repository.
 
 

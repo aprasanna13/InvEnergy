@@ -7,6 +7,8 @@
   <link rel="icon" type="image/x-icon" href="/favicon.ico" />
   <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png" />
   <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
+  <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
   <style>
     /* ==========================================================================
@@ -1065,10 +1067,31 @@
       background: #fee2e2;
       border: 1px solid #f87171;
       color: #991b1b;
-      padding: 8px 12px;
+      padding: 10px 14px;
       border-radius: var(--radius-sm);
       font-size: 12px;
+      line-height: 1.45;
       display: none;
+    }
+    .login-success {
+      background: #ecfdf5;
+      border: 1px solid #34d399;
+      color: #065f46;
+      padding: 12px 14px;
+      border-radius: var(--radius-sm);
+      font-size: 12px;
+      line-height: 1.5;
+      display: none;
+    }
+    .login-badge-domain {
+      display: inline-block;
+      background: rgba(17, 135, 81, 0.12);
+      color: var(--brand-pine-green);
+      padding: 1px 5px;
+      border-radius: 3px;
+      font-size: 11px;
+      font-family: var(--font-mono);
+      font-weight: 600;
     }
     .login-hint {
       margin-top: 6px;
@@ -1384,7 +1407,7 @@
     </div>
   </div>
 
-  <!-- Static Demo Login Screen Overlay -->
+  <!-- Enterprise Passwordless Sign-In Overlay (CR-7) -->
   <div id="login-overlay" class="login-overlay" style="display:flex;">
     <div class="login-card">
       <div class="login-header">
@@ -1400,19 +1423,35 @@
           <path d="M142.718 31.8612C142.884 31.7229 142.926 31.626 143.037 31.3631C144.448 27.7108 149.705 13.0876 150.66 10.2515C151.116 8.90952 151.752 8.25929 153.288 8.09327C153.288 7.24936 152.928 6.75131 152.928 6.75131H146.371C146.371 6.75131 146.011 7.31853 146.011 8.09327C147.325 8.30079 148.391 8.702 148.391 9.40756C148.391 11.7871 146.011 16.6431 144.877 19.7282C144.351 18.4139 140.837 10.3622 140.837 9.3799C140.837 8.53598 143.147 8.24545 143.881 8.10711C143.881 8.10711 143.881 7.26319 143.562 6.76515H135.262C135.262 6.76515 134.902 7.37387 134.874 8.10711C136.465 8.56365 136.687 9.28305 137.752 11.3721C137.959 11.801 142.359 21.1947 143.493 23.7541L141.695 28.2642L141.321 29.288C141.031 30.1734 139.592 30.5192 138.845 30.6576C138.845 30.6576 138.845 31.5153 139.163 31.9995H142.151C142.151 31.9995 142.552 32.0134 142.718 31.8889" fill="#FFFFFF"/>
         </svg>
         <div style="font-family:var(--font-display); font-size:16px; font-weight:700; margin-top:8px;"><img src="/favicon-32x32.png" width="20" height="20" alt="Invenergy Icon" style="vertical-align: -3px; margin-right: 8px; border-radius: 4px; display: inline-block;" />Portfolio Contract Intelligence</div>
-        <div style="font-size:12px; color:var(--neutrals-sage-green); margin-top:2px;">Sign in to access renewable project contracts &amp; compliance records</div>
+        <div style="font-size:12px; color:var(--neutrals-sage-green); margin-top:2px;">Enterprise Passwordless Sign-In · Restricted Access</div>
       </div>
       <div class="login-body">
         <div id="login-error-msg" class="login-error"></div>
-        <div class="login-field">
-          <label for="login-username">Username</label>
-          <input type="text" id="login-username" placeholder="Enter username" autocomplete="username" autofocus onkeydown="if(event.key==='Enter') document.getElementById('login-password').focus();" />
+        <div id="login-success-msg" class="login-success"></div>
+
+        <div id="login-form-container">
+          <div class="login-field">
+            <label for="login-email">Corporate Email Address</label>
+            <input type="email" id="login-email" placeholder="user@invenergy.com or user@google.com" autocomplete="email" autofocus onkeydown="if(event.key==='Enter') requestSignInLink();" />
+          </div>
+          <button type="button" id="login-submit-btn" class="login-btn" onclick="requestSignInLink()">Send Sign-In Link</button>
+          <div class="login-hint" style="margin-top:12px; text-align:left; line-height:1.45;">
+            🔒 <strong>Authorized Domains Only:</strong> Link generation and platform access are strictly restricted to verified <span class="login-badge-domain">@invenergy.com</span> and <span class="login-badge-domain">@google.com</span> addresses.
+          </div>
         </div>
-        <div class="login-field">
-          <label for="login-password">Password</label>
-          <input type="password" id="login-password" placeholder="Enter password" autocomplete="current-password" onkeydown="if(event.key==='Enter') attemptLogin();" />
+
+        <!-- Cross-device email confirmation prompt (shown if link opened without localStorage) -->
+        <div id="login-confirm-container" style="display:none; flex-direction:column; gap:12px;">
+          <div style="font-size:13px; font-weight:600; color:var(--brand-dark-green);">Confirm Email Address</div>
+          <div style="font-size:12px; color:var(--neutrals-gray); line-height:1.4;">
+            To complete sign-in on this device, please re-enter the corporate email address you requested the link for.
+          </div>
+          <div class="login-field">
+            <label for="login-confirm-email">Corporate Email Address</label>
+            <input type="email" id="login-confirm-email" placeholder="user@invenergy.com" onkeydown="if(event.key==='Enter') completeEmailLinkSignIn();" />
+          </div>
+          <button type="button" class="login-btn" onclick="completeEmailLinkSignIn()">Confirm &amp; Sign In</button>
         </div>
-        <button type="button" class="login-btn" onclick="attemptLogin()">Sign In to Workspace</button>
       </div>
     </div>
   </div>
@@ -2769,7 +2808,13 @@
         return;
       }
       try {
-        const loadingTask = window.pdfjsLib.getDocument(pdfUrl);
+        const token = await getAuthToken();
+        const docInitParams = {
+          url: pdfUrl,
+          httpHeaders: token ? { Authorization: `Bearer ${token}` } : {},
+          withCredentials: false,
+        };
+        const loadingTask = window.pdfjsLib.getDocument(docInitParams);
         pdfDoc = await loadingTask.promise;
         for (let pageNum = 1; pageNum <= pdfDoc.numPages; pageNum++) {
           const page = await pdfDoc.getPage(pageNum);
@@ -2794,6 +2839,7 @@
           await page.render({ canvasContext: ctx, viewport: viewport }).promise;
         }
       } catch (err) {
+        console.error("PDF rendering failed", err);
         container.innerHTML = `<iframe src="${pdfUrl}" style="width:100%; height:100%; border:none;"></iframe>`;
       }
     }
@@ -2819,10 +2865,31 @@
       }
     }
 
-    function downloadCsv(csvName) {
+    async function downloadCsv(csvName) {
       if (!currentBundle) return;
       const docId = currentBundle.document.document_id;
-      window.open(`/api/v1/documents/${docId}/export/${csvName}`, "_blank");
+      const url = `/api/v1/documents/${docId}/export/${csvName}`;
+      try {
+        const token = await getAuthToken();
+        const headers = token ? { Authorization: `Bearer ${token}` } : {};
+        const res = await fetch(url, { headers });
+        if (!res.ok) {
+          throw new Error(`Failed to download CSV (${res.status} ${res.statusText})`);
+        }
+        const blob = await res.blob();
+        const blobUrl = window.URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.style.display = "none";
+        a.href = blobUrl;
+        a.download = `${docId}_${csvName}`;
+        document.body.appendChild(a);
+        a.click();
+        window.URL.revokeObjectURL(blobUrl);
+        a.remove();
+      } catch (err) {
+        console.error("CSV export failed", err);
+        alert(`Failed to download ${csvName}: ${err.message}`);
+      }
     }
 
     function escapeHtml(str) {
@@ -3057,124 +3124,310 @@
       feed.scrollTop = feed.scrollHeight;
     }
 
-    /* User Authentication & Role Permissions:
-       - google123 / google123: Admin role with full read, write, and upload/parse capabilities.
-       - invtest123 / invtest123: Viewer role with read-only capabilities; upload file input and parse buttons disabled on the DOM.
-    */
-    function applyUserPermissions(user) {
+    /* ==========================================================================
+       Enterprise Passwordless Email Link Authentication & Domain Gate (CR-7)
+       ========================================================================== */
+    let currentUserContext = null;
+    let authConfig = null;
+    let firebaseInitialized = false;
+
+    async function getAuthToken() {
+      if (window.firebase && firebase.apps && firebase.apps.length && firebase.auth && firebase.auth().currentUser) {
+        try {
+          return await firebase.auth().currentUser.getIdToken(false);
+        } catch (e) {
+          console.warn("Failed to get Firebase ID token:", e);
+        }
+      }
+      return null;
+    }
+
+    // Universal authenticated fetch interceptor (CR-7)
+    const _originalFetch = window.fetch;
+    window.fetch = async function(resource, init = {}) {
+      let url = typeof resource === "string" ? resource : (resource && resource.url ? resource.url : "");
+      if (url.startsWith("/api/v1/") && !url.startsWith("/api/v1/auth/config") && !url.startsWith("/api/v1/auth/request-link")) {
+        const token = await getAuthToken();
+        if (token) {
+          init = init || {};
+          const headers = new Headers(init.headers || {});
+          if (!headers.has("Authorization")) {
+            headers.set("Authorization", `Bearer ${token}`);
+          }
+          init.headers = headers;
+        }
+      }
+      return _originalFetch(resource, init);
+    };
+
+    function showLoginError(msg) {
+      const errBox = document.getElementById("login-error-msg");
+      const succBox = document.getElementById("login-success-msg");
+      if (succBox) { succBox.style.display = "none"; succBox.innerHTML = ""; }
+      if (errBox) {
+        errBox.textContent = msg;
+        errBox.style.display = "block";
+      }
+    }
+
+    function showLoginSuccess(htmlMsg) {
+      const errBox = document.getElementById("login-error-msg");
+      const succBox = document.getElementById("login-success-msg");
+      if (errBox) { errBox.style.display = "none"; errBox.textContent = ""; }
+      if (succBox) {
+        succBox.innerHTML = htmlMsg;
+        succBox.style.display = "block";
+      }
+    }
+
+    function applyUserRolePermissions(profile) {
       const input = document.getElementById("pdf-upload-input");
       const btn = document.getElementById("upload-btn");
       const badge = document.getElementById("user-badge");
 
-      if (user === "invtest123") {
-        if (input) {
-          input.disabled = true;
-          input.style.opacity = "0.45";
-          input.style.cursor = "not-allowed";
-          input.title = "Uploads are disabled for read-only user (invtest123)";
+      if (!profile) {
+        if (input) { input.disabled = true; }
+        if (btn) { btn.disabled = true; }
+        return;
+      }
+
+      const role = (profile.role || "viewer").toLowerCase();
+      const isAdmin = role === "admin";
+
+      if (input) {
+        input.disabled = !isAdmin;
+        input.style.opacity = isAdmin ? "1" : "0.45";
+        input.style.cursor = isAdmin ? "default" : "not-allowed";
+        input.title = isAdmin ? "" : "Uploads are restricted to Admin role (@google.com or admin whitelist)";
+      }
+      if (btn) {
+        btn.disabled = !isAdmin;
+        btn.style.opacity = isAdmin ? "1" : "0.45";
+        btn.style.cursor = isAdmin ? "pointer" : "not-allowed";
+        btn.title = isAdmin ? "" : "Upload & Parse is restricted to Admin role (@google.com or admin whitelist)";
+      }
+
+      if (badge) {
+        const roleLabel = isAdmin ? "ADMIN" : "VIEWER";
+        badge.innerHTML = `<span>👤 ${escapeHtml(profile.email)} (${roleLabel})</span><button class="logout-btn" onclick="handleLogout()" title="Sign out of workspace">Sign Out</button>`;
+      }
+    }
+
+    async function requestSignInLink() {
+      const emailInput = document.getElementById("login-email");
+      const submitBtn = document.getElementById("login-submit-btn");
+      const errBox = document.getElementById("login-error-msg");
+      const email = (emailInput ? emailInput.value : "").trim().toLowerCase();
+
+      if (!email || !email.includes("@")) {
+        showLoginError("Please enter a valid corporate email address.");
+        if (emailInput) emailInput.focus();
+        return;
+      }
+
+      const domain = email.split("@").pop();
+      if (domain !== "invenergy.com" && domain !== "google.com") {
+        showLoginError("Access denied. Only @invenergy.com and @google.com domains are authorized.");
+        if (emailInput) emailInput.focus();
+        return;
+      }
+
+      if (submitBtn) {
+        submitBtn.disabled = true;
+        submitBtn.textContent = "Dispatched Link Request...";
+        submitBtn.style.opacity = "0.7";
+      }
+
+      try {
+        const res = await _originalFetch("/api/v1/auth/request-link", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email: email, continue_url: window.location.origin }),
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          throw new Error(data.detail || "Failed to dispatch sign-in link.");
         }
-        if (btn) {
-          btn.disabled = true;
-          btn.style.opacity = "0.45";
-          btn.style.cursor = "not-allowed";
-          btn.title = "Upload & Parse is disabled for read-only user (invtest123)";
-        }
-        if (badge) {
-          badge.innerHTML = `<span>👤 invtest123 (Read-Only)</span><button class="logout-btn" onclick="handleLogout()" title="Sign out of workspace">Sign Out</button>`;
-        }
-      } else {
-        if (input) {
-          input.disabled = false;
-          input.style.opacity = "1";
-          input.style.cursor = "default";
-          input.title = "";
-        }
-        if (btn) {
-          btn.disabled = false;
-          btn.style.opacity = "1";
-          btn.style.cursor = "pointer";
-          btn.title = "";
-        }
-        if (badge) {
-          badge.innerHTML = `<span>👤 Workspace User</span><button class="logout-btn" onclick="handleLogout()" title="Sign out of workspace">Sign Out</button>`;
+
+        // Store for same-browser link verification
+        localStorage.setItem("emailForSignIn", email);
+        const formContainer = document.getElementById("login-form-container");
+        if (formContainer) formContainer.style.display = "none";
+
+        showLoginSuccess(`
+          ✓ <strong>Sign-In Link Sent!</strong><br/>
+          A passwordless access link has been dispatched to <strong>${escapeHtml(email)}</strong>.<br/>
+          Please check your inbox and click the secure link to enter the workspace.
+        `);
+      } catch (err) {
+        showLoginError(err.message || "Failed to request link. Please check network connection.");
+      } finally {
+        if (submitBtn) {
+          submitBtn.disabled = false;
+          submitBtn.textContent = "Send Sign-In Link";
+          submitBtn.style.opacity = "1";
         }
       }
     }
 
-    function checkAuthSession() {
-      const user = sessionStorage.getItem("invenergy_auth_user");
+    async function completeEmailLinkSignIn(overrideEmail) {
+      let email = overrideEmail || localStorage.getItem("emailForSignIn");
+      const confirmContainer = document.getElementById("login-confirm-container");
+      const formContainer = document.getElementById("login-form-container");
+
+      if (!email) {
+        const confirmInput = document.getElementById("login-confirm-email");
+        email = (confirmInput ? confirmInput.value : "").trim().toLowerCase();
+      }
+
+      if (!email) {
+        if (formContainer) formContainer.style.display = "none";
+        if (confirmContainer) confirmContainer.style.display = "flex";
+        const confirmInput = document.getElementById("login-confirm-email");
+        if (confirmInput) confirmInput.focus();
+        return;
+      }
+
+      try {
+        showLoginSuccess("Verifying link credentials...");
+        await firebase.auth().signInWithEmailLink(email, window.location.href);
+        localStorage.removeItem("emailForSignIn");
+        if (confirmContainer) confirmContainer.style.display = "none";
+        // Clean address bar so page reloads don't re-consume token
+        window.history.replaceState({}, document.title, window.location.pathname);
+      } catch (err) {
+        console.error("Sign-in with email link failed:", err);
+        showLoginError(`Failed to verify sign-in link: ${err.message}`);
+        if (confirmContainer) confirmContainer.style.display = "flex";
+      }
+    }
+
+    async function handleLogout() {
+      currentUserContext = null;
+      if (window.firebase && firebase.apps && firebase.apps.length) {
+        try {
+          await firebase.auth().signOut();
+        } catch (e) {
+          console.warn("Sign out error", e);
+        }
+      }
+
       const overlay = document.getElementById("login-overlay");
       const shell = document.getElementById("app-shell");
       const fab = document.getElementById("bq-agent-fab");
-      if (user === "google123" || user === "invtest123") {
-        if (overlay) overlay.style.display = "none";
-        if (shell) shell.style.display = "flex";
-        if (fab) fab.style.display = "flex";
-        applyUserPermissions(user);
-        loadPortfolioHierarchy();
-      } else {
-        if (overlay) overlay.style.display = "flex";
-        if (shell) shell.style.display = "none";
-        if (fab) fab.style.display = "none";
-        const bqWin = document.getElementById("bq-agent-window");
-        if (bqWin) {
-          bqWin.classList.remove("open");
-          bqWin.style.display = "none";
-        }
-        applyUserPermissions(null);
-        const userInput = document.getElementById("login-username");
-        if (userInput) userInput.focus();
-      }
-    }
-
-    function attemptLogin() {
-      const uInput = document.getElementById("login-username");
-      const pInput = document.getElementById("login-password");
-      const errBox = document.getElementById("login-error-msg");
-      const username = (uInput ? uInput.value : "").trim();
-      const password = (pInput ? pInput.value : "");
-
-      if ((username === "google123" && password === "google123") ||
-          (username === "invtest123" && password === "invtest123")) {
-        sessionStorage.setItem("invenergy_auth_user", username);
-        if (errBox) {
-          errBox.style.display = "none";
-          errBox.textContent = "";
-        }
-        checkAuthSession();
-      } else {
-        if (errBox) {
-          errBox.textContent = "Please enter valid user name and pwd.";
-          errBox.style.display = "block";
-        }
-        if (pInput) {
-          pInput.value = "";
-          pInput.focus();
-        }
-      }
-    }
-
-    function handleLogout() {
-      sessionStorage.removeItem("invenergy_auth_user");
-      const uInput = document.getElementById("login-username");
-      const pInput = document.getElementById("login-password");
-      const errBox = document.getElementById("login-error-msg");
-      if (uInput) uInput.value = "";
-      if (pInput) pInput.value = "";
-      if (errBox) {
-        errBox.style.display = "none";
-        errBox.textContent = "";
-      }
       const bqWin = document.getElementById("bq-agent-window");
+      const formContainer = document.getElementById("login-form-container");
+      const confirmContainer = document.getElementById("login-confirm-container");
+
+      if (formContainer) formContainer.style.display = "block";
+      if (confirmContainer) confirmContainer.style.display = "none";
+      if (overlay) overlay.style.display = "flex";
+      if (shell) shell.style.display = "none";
+      if (fab) fab.style.display = "none";
       if (bqWin) {
         bqWin.classList.remove("open");
         bqWin.style.display = "none";
       }
-      applyUserPermissions(null);
-      checkAuthSession();
+
+      const emailInput = document.getElementById("login-email");
+      if (emailInput) { emailInput.value = ""; emailInput.focus(); }
+      const errBox = document.getElementById("login-error-msg");
+      if (errBox) { errBox.style.display = "none"; errBox.textContent = ""; }
+      const succBox = document.getElementById("login-success-msg");
+      if (succBox) { succBox.style.display = "none"; succBox.innerHTML = ""; }
+
+      applyUserRolePermissions(null);
     }
 
-    checkAuthSession();
+    async function initAuth() {
+      try {
+        const cfgRes = await _originalFetch("/api/v1/auth/config");
+        authConfig = await cfgRes.json();
+      } catch (err) {
+        console.warn("Failed to load auth config, defaulting to dev bypass:", err);
+        authConfig = { auth_enabled: false };
+      }
+
+      const overlay = document.getElementById("login-overlay");
+      const shell = document.getElementById("app-shell");
+      const fab = document.getElementById("bq-agent-fab");
+
+      // Hermetic / Dev Mode Bypass when AUTH_ENABLED=false
+      if (!authConfig.auth_enabled) {
+        currentUserContext = {
+          email: "dev@invenergy.com",
+          role: "admin",
+          domain: "invenergy.com",
+          uid: "dev_bypass_uid"
+        };
+        if (overlay) overlay.style.display = "none";
+        if (shell) shell.style.display = "flex";
+        if (fab) fab.style.display = "flex";
+        applyUserRolePermissions(currentUserContext);
+        loadPortfolioHierarchy();
+        return;
+      }
+
+      // Initialize Firebase App if not initialized
+      if (window.firebase && (!firebase.apps || !firebase.apps.length) && authConfig.firebase_api_key) {
+        firebase.initializeApp({
+          apiKey: authConfig.firebase_api_key,
+          authDomain: authConfig.firebase_auth_domain,
+          projectId: authConfig.project_id,
+        });
+        firebaseInitialized = true;
+      }
+
+      // Check if arriving from email sign-in link
+      if (window.firebase && firebase.auth && firebase.auth().isSignInWithEmailLink(window.location.href)) {
+        await completeEmailLinkSignIn();
+      }
+
+      // Bind Firebase auth state listener
+      if (window.firebase && firebase.auth) {
+        firebase.auth().onAuthStateChanged(async (user) => {
+          if (user) {
+            try {
+              const meRes = await fetch("/api/v1/auth/me");
+              if (meRes.ok) {
+                const profile = await meRes.json();
+                currentUserContext = profile;
+                if (overlay) overlay.style.display = "none";
+                if (shell) shell.style.display = "flex";
+                if (fab) fab.style.display = "flex";
+                applyUserRolePermissions(profile);
+                loadPortfolioHierarchy();
+                return;
+              } else {
+                const errData = await meRes.json().catch(() => ({}));
+                showLoginError(errData.detail || "Access restricted for this account.");
+                await firebase.auth().signOut();
+              }
+            } catch (err) {
+              console.error("Failed to fetch user context", err);
+              showLoginError("Verification failed with server. Please try signing in again.");
+            }
+          }
+
+          // Unauthenticated state
+          currentUserContext = null;
+          if (overlay) overlay.style.display = "flex";
+          if (shell) shell.style.display = "none";
+          if (fab) fab.style.display = "none";
+          const bqWin = document.getElementById("bq-agent-window");
+          if (bqWin) {
+            bqWin.classList.remove("open");
+            bqWin.style.display = "none";
+          }
+          applyUserRolePermissions(null);
+          const emailInput = document.getElementById("login-email");
+          if (emailInput) emailInput.focus();
+        });
+      } else {
+        // Fallback if Firebase SDK failed to load
+        showLoginError("Identity provider SDK could not be loaded. Please check your network or ad-blocker.");
+      }
+    initAuth();
   </script>
 
   <!-- New ERP Project Registration Modal -->
