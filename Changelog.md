@@ -157,6 +157,6 @@
 - Passed `"canHandleCodeInApp": True` in `accounts:sendOobCode` payload in `contract_parser/auth.py`. This instructs Google Identity Toolkit to construct the action link to return directly to the web application (`continueUrl`), preventing interception by the default Firebase Hosting action handler (`/__/auth/action`) which caused `ProjectConfigService.GetProjectConfig` credential errors.
 - Provisioned the official Firebase Web App (`InvEnergy Contract Parser`) in project `pr-tftest` and configured dedicated Web App API Key (`AIzaSyAfls...`).
 
-
-
-
+## [0.8.3] - 2026-10-08
+- Updated Firebase project public display name from `prasanna_looker` to `Invenergy Contracts` (`pr-tftest`) to ensure `%APP_NAME%` placeholder in authentication templates reflects official Invenergy branding.
+- Documented email template configuration options for subject, sender name, reply-to, and body customization via Firebase Console and Identity Platform.
