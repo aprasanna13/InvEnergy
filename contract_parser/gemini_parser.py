@@ -13,8 +13,11 @@ from typing import Protocol
 from google import genai
 from google.genai import types
 
+from opentelemetry import trace
+
 from contract_parser.bundle_assembler import assemble_multi_pass_extraction
 from contract_parser.config import PipelineConfig
+from contract_parser.telemetry import TracedThreadPoolExecutor, get_tracer
 from contract_parser.prompts import (
     BODY_PASS_SYSTEM_PROMPT,
     DISCOVERY_SYSTEM_PROMPT,
@@ -45,8 +48,58 @@ from contract_parser.schemas import (
 )
 
 logger = logging.getLogger(__name__)
+tracer = get_tracer("contract_parser.gemini_parser")
 
 SYSTEM_PROMPT = SINGLE_PASS_SYSTEM_PROMPT
+
+
+def record_llm_response_telemetry(
+    span: trace.Span, response: object, model_name: str
+) -> None:
+    """Extracts usage metadata and finish attributes directly from raw GenAI response object."""
+    if not span.is_recording():
+        return
+
+    span.set_attribute("gen_ai.system", "vertex_ai")
+    span.set_attribute(
+        "gen_ai.response.model",
+        getattr(response, "model_version", None) or model_name,
+    )
+
+    usage = getattr(response, "usage_metadata", None)
+    if usage:
+        prompt_tokens = getattr(usage, "prompt_token_count", 0) or 0
+        candidates_tokens = getattr(usage, "candidates_token_count", 0) or 0
+        total_tokens = getattr(usage, "total_token_count", 0) or 0
+        cached_tokens = getattr(usage, "cached_content_token_count", 0) or 0
+
+        span.set_attribute("gen_ai.usage.prompt_tokens", prompt_tokens)
+        span.set_attribute("gen_ai.usage.completion_tokens", candidates_tokens)
+        span.set_attribute("gen_ai.usage.total_tokens", total_tokens)
+        span.set_attribute("gen_ai.usage.cached_tokens", cached_tokens)
+
+
+def record_model_fallback_event(
+    span: trace.Span,
+    failed_model: str,
+    fallback_model: str,
+    attempt: int,
+    error: Exception,
+) -> None:
+    """Records an explicit span event when extraction pipeline falls back between models."""
+    if not span.is_recording():
+        return
+
+    span.add_event(
+        "model_fallback_transition",
+        attributes={
+            "gen_ai.fallback.failed_model": failed_model,
+            "gen_ai.fallback.target_model": fallback_model,
+            "gen_ai.fallback.attempt": attempt,
+            "gen_ai.fallback.error_type": error.__class__.__name__,
+            "gen_ai.fallback.error_message": str(error)[:500],
+        },
+    )
 
 
 class ContractExtractorProtocol(Protocol):
@@ -107,129 +160,155 @@ class GeminiContractParser:
         self, pdf_part: types.Part, total_pages: int | None = None
     ) -> ContractStructureIndex:
         """Pass 1: Discover high-level structure, zone boundaries, and attached exhibits."""
-        models_to_try = [self.config.fast_discovery_model]
-        if self.config.gemini_model not in models_to_try:
-            models_to_try.append(self.config.gemini_model)
-        if (
-            self.config.gemini_fallback_model
-            and self.config.gemini_fallback_model not in models_to_try
-        ):
-            models_to_try.append(self.config.gemini_fallback_model)
+        with tracer.start_as_current_span("pass_1_structure_discovery") as span:
+            span.set_attribute("pass.name", "structure_discovery")
+            models_to_try = [self.config.fast_discovery_model]
+            if self.config.gemini_model not in models_to_try:
+                models_to_try.append(self.config.gemini_model)
+            if (
+                self.config.gemini_fallback_model
+                and self.config.gemini_fallback_model not in models_to_try
+            ):
+                models_to_try.append(self.config.gemini_fallback_model)
 
-        last_err: Exception | None = None
-        for model_name in models_to_try:
-            backoff = self.config.initial_backoff_seconds
-            for attempt in range(1, self.config.max_retries + 1):
-                try:
-                    logger.info(
-                        "Pass 1: Discovering contract structure with %s (attempt %d/%d)",
-                        model_name,
-                        attempt,
-                        self.config.max_retries,
-                    )
-                    directive = build_discovery_directive(total_pages)
-                    response = self.client.models.generate_content(
-                        model=model_name,
-                        contents=[pdf_part, directive],
-                        config=types.GenerateContentConfig(
-                            system_instruction=DISCOVERY_SYSTEM_PROMPT,
-                            response_mime_type="application/json",
-                            response_schema=ContractStructureIndex,
-                            temperature=0.0,
-                        ),
-                    )
-                    if response.parsed is not None and isinstance(
-                        response.parsed, ContractStructureIndex
-                    ):
-                        return response.parsed
-                    if response.text:
-                        return ContractStructureIndex.model_validate_json(response.text)
-                    raise RuntimeError("Pass 1 discovery returned empty response.")
-                except Exception as exc:
-                    last_err = exc
-                    err_str = str(exc)
-                    if any(
-                        fatal in err_str
-                        for fatal in ("404", "NOT_FOUND", "EOF while parsing", "json_invalid", "validation error")
-                    ):
-                        logger.warning(
-                            "Pass 1 %s encountered non-retryable error (%s). Falling back to next model.",
+            last_err: Exception | None = None
+            for model_name in models_to_try:
+                backoff = self.config.initial_backoff_seconds
+                for attempt in range(1, self.config.max_retries + 1):
+                    try:
+                        logger.info(
+                            "Pass 1: Discovering contract structure with %s (attempt %d/%d)",
                             model_name,
-                            err_str,
+                            attempt,
+                            self.config.max_retries,
                         )
-                        break
-                    if attempt < self.config.max_retries:
-                        time.sleep(backoff)
-                        backoff *= 2.0
+                        directive = build_discovery_directive(total_pages)
+                        response = self.client.models.generate_content(
+                            model=model_name,
+                            contents=[pdf_part, directive],
+                            config=types.GenerateContentConfig(
+                                system_instruction=DISCOVERY_SYSTEM_PROMPT,
+                                response_mime_type="application/json",
+                                response_schema=ContractStructureIndex,
+                                temperature=0.0,
+                            ),
+                        )
+                        record_llm_response_telemetry(span, response, model_name)
+                        if response.parsed is not None and isinstance(
+                            response.parsed, ContractStructureIndex
+                        ):
+                            return response.parsed
+                        if response.text:
+                            return ContractStructureIndex.model_validate_json(response.text)
+                        raise RuntimeError("Pass 1 discovery returned empty response.")
+                    except Exception as exc:
+                        last_err = exc
+                        err_str = str(exc)
+                        curr_idx = models_to_try.index(model_name)
+                        next_model = (
+                            models_to_try[curr_idx + 1]
+                            if curr_idx + 1 < len(models_to_try)
+                            else "none"
+                        )
+                        record_model_fallback_event(
+                            span, model_name, next_model, attempt, exc
+                        )
+                        if any(
+                            fatal in err_str
+                            for fatal in ("404", "NOT_FOUND", "EOF while parsing", "json_invalid", "validation error")
+                        ):
+                            logger.warning(
+                                "Pass 1 %s encountered non-retryable error (%s). Falling back to next model.",
+                                model_name,
+                                err_str,
+                            )
+                            break
+                        if attempt < self.config.max_retries:
+                            time.sleep(backoff)
+                            backoff *= 2.0
 
-        raise RuntimeError(
-            f"Pass 1 structural discovery failed across models {models_to_try}: {last_err}"
-        ) from last_err
+            raise RuntimeError(
+                f"Pass 1 structural discovery failed across models {models_to_try}: {last_err}"
+            ) from last_err
 
     def _extract_body_pass(
         self, pdf_part: types.Part, index: ContractStructureIndex
     ) -> BodyPassExtraction:
         """Pass 2: Extract agreement body sections (Sections 1..N), subsections, preamble, and definitions."""
-        models_to_try = [self.config.gemini_model]
-        if (
-            self.config.gemini_fallback_model
-            and self.config.gemini_fallback_model not in models_to_try
-        ):
-            models_to_try.append(self.config.gemini_fallback_model)
+        with tracer.start_as_current_span("pass_2_body_extraction") as span:
+            span.set_attribute("pass.name", "body_extraction")
+            span.set_attribute("body.start_page", index.body_start_page)
+            span.set_attribute("body.end_page", index.body_end_page)
+            models_to_try = [self.config.gemini_model]
+            if (
+                self.config.gemini_fallback_model
+                and self.config.gemini_fallback_model not in models_to_try
+            ):
+                models_to_try.append(self.config.gemini_fallback_model)
 
-        last_err: Exception | None = None
-        for model_name in models_to_try:
-            backoff = self.config.initial_backoff_seconds
-            for attempt in range(1, self.config.max_retries + 1):
-                try:
-                    logger.info(
-                        "Pass 2: Extracting agreement body with %s (attempt %d/%d, pp. %d–%d)",
-                        model_name,
-                        attempt,
-                        self.config.max_retries,
-                        index.body_start_page,
-                        index.body_end_page,
-                    )
-                    directive = build_body_pass_directive(index)
-                    response = self.client.models.generate_content(
-                        model=model_name,
-                        contents=[pdf_part, directive],
-                        config=types.GenerateContentConfig(
-                            system_instruction=BODY_PASS_SYSTEM_PROMPT,
-                            response_mime_type="application/json",
-                            response_schema=BodyPassExtraction,
-                            temperature=0.0,
-                            max_output_tokens=self.config.max_output_tokens,
-                            thinking_config=types.ThinkingConfig(thinking_budget=1024),
-                        ),
-                    )
-                    if response.parsed is not None and isinstance(
-                        response.parsed, BodyPassExtraction
-                    ):
-                        return response.parsed
-                    if response.text:
-                        return BodyPassExtraction.model_validate_json(response.text)
-                    raise RuntimeError("Pass 2 body extraction returned empty response.")
-                except Exception as exc:
-                    last_err = exc
-                    err_str = str(exc)
-                    if any(
-                        fatal in err_str
-                        for fatal in ("404", "NOT_FOUND", "EOF while parsing", "json_invalid", "validation error")
-                    ):
-                        logger.warning(
-                            "Pass 2 %s encountered non-retryable error (%s). Falling back to next model.",
+            last_err: Exception | None = None
+            for model_name in models_to_try:
+                backoff = self.config.initial_backoff_seconds
+                for attempt in range(1, self.config.max_retries + 1):
+                    try:
+                        logger.info(
+                            "Pass 2: Extracting agreement body with %s (attempt %d/%d, pp. %d–%d)",
                             model_name,
-                            err_str,
+                            attempt,
+                            self.config.max_retries,
+                            index.body_start_page,
+                            index.body_end_page,
                         )
-                        break
-                    if attempt < self.config.max_retries:
-                        time.sleep(backoff)
-                        backoff *= 2.0
+                        directive = build_body_pass_directive(index)
+                        response = self.client.models.generate_content(
+                            model=model_name,
+                            contents=[pdf_part, directive],
+                            config=types.GenerateContentConfig(
+                                system_instruction=BODY_PASS_SYSTEM_PROMPT,
+                                response_mime_type="application/json",
+                                response_schema=BodyPassExtraction,
+                                temperature=0.0,
+                                max_output_tokens=self.config.max_output_tokens,
+                                thinking_config=types.ThinkingConfig(thinking_budget=1024),
+                            ),
+                        )
+                        record_llm_response_telemetry(span, response, model_name)
+                        if response.parsed is not None and isinstance(
+                            response.parsed, BodyPassExtraction
+                        ):
+                            return response.parsed
+                        if response.text:
+                            return BodyPassExtraction.model_validate_json(response.text)
+                        raise RuntimeError("Pass 2 body extraction returned empty response.")
+                    except Exception as exc:
+                        last_err = exc
+                        err_str = str(exc)
+                        curr_idx = models_to_try.index(model_name)
+                        next_model = (
+                            models_to_try[curr_idx + 1]
+                            if curr_idx + 1 < len(models_to_try)
+                            else "none"
+                        )
+                        record_model_fallback_event(
+                            span, model_name, next_model, attempt, exc
+                        )
+                        if any(
+                            fatal in err_str
+                            for fatal in ("404", "NOT_FOUND", "EOF while parsing", "json_invalid", "validation error")
+                        ):
+                            logger.warning(
+                                "Pass 2 %s encountered non-retryable error (%s). Falling back to next model.",
+                                model_name,
+                                err_str,
+                            )
+                            break
+                        if attempt < self.config.max_retries:
+                            time.sleep(backoff)
+                            backoff *= 2.0
 
-        raise RuntimeError(
-            f"Pass 2 body extraction failed across models {models_to_try}: {last_err}"
-        ) from last_err
+            raise RuntimeError(
+                f"Pass 2 body extraction failed across models {models_to_try}: {last_err}"
+            ) from last_err
 
     def _extract_exhibits_pass(
         self, pdf_part: types.Part, index: ContractStructureIndex
@@ -239,65 +318,78 @@ class GeminiContractParser:
             logger.info("Pass 3: No exhibits detected in structural index; bypassing exhibits pass.")
             return ExhibitsPassExtraction()
 
-        models_to_try = [self.config.gemini_model]
-        if (
-            self.config.gemini_fallback_model
-            and self.config.gemini_fallback_model not in models_to_try
-        ):
-            models_to_try.append(self.config.gemini_fallback_model)
+        with tracer.start_as_current_span("pass_3_exhibits_extraction") as span:
+            span.set_attribute("pass.name", "exhibits_extraction")
+            span.set_attribute("exhibits.count", len(index.exhibits))
+            models_to_try = [self.config.gemini_model]
+            if (
+                self.config.gemini_fallback_model
+                and self.config.gemini_fallback_model not in models_to_try
+            ):
+                models_to_try.append(self.config.gemini_fallback_model)
 
-        last_err: Exception | None = None
-        for model_name in models_to_try:
-            backoff = self.config.initial_backoff_seconds
-            for attempt in range(1, self.config.max_retries + 1):
-                try:
-                    logger.info(
-                        "Pass 3: Extracting exhibits with %s (attempt %d/%d, %d exhibits)",
-                        model_name,
-                        attempt,
-                        self.config.max_retries,
-                        len(index.exhibits),
-                    )
-                    directive = build_exhibits_pass_directive(index)
-                    response = self.client.models.generate_content(
-                        model=model_name,
-                        contents=[pdf_part, directive],
-                        config=types.GenerateContentConfig(
-                            system_instruction=EXHIBITS_PASS_SYSTEM_PROMPT,
-                            response_mime_type="application/json",
-                            response_schema=ExhibitsPassExtraction,
-                            temperature=0.0,
-                            max_output_tokens=self.config.max_output_tokens,
-                            thinking_config=types.ThinkingConfig(thinking_budget=1024),
-                        ),
-                    )
-                    if response.parsed is not None and isinstance(
-                        response.parsed, ExhibitsPassExtraction
-                    ):
-                        return response.parsed
-                    if response.text:
-                        return ExhibitsPassExtraction.model_validate_json(response.text)
-                    raise RuntimeError("Pass 3 exhibits extraction returned empty response.")
-                except Exception as exc:
-                    last_err = exc
-                    err_str = str(exc)
-                    if any(
-                        fatal in err_str
-                        for fatal in ("404", "NOT_FOUND", "EOF while parsing", "json_invalid", "validation error")
-                    ):
-                        logger.warning(
-                            "Pass 3 %s encountered non-retryable error (%s). Falling back to next model.",
+            last_err: Exception | None = None
+            for model_name in models_to_try:
+                backoff = self.config.initial_backoff_seconds
+                for attempt in range(1, self.config.max_retries + 1):
+                    try:
+                        logger.info(
+                            "Pass 3: Extracting exhibits with %s (attempt %d/%d, %d exhibits)",
                             model_name,
-                            err_str,
+                            attempt,
+                            self.config.max_retries,
+                            len(index.exhibits),
                         )
-                        break
-                    if attempt < self.config.max_retries:
-                        time.sleep(backoff)
-                        backoff *= 2.0
+                        directive = build_exhibits_pass_directive(index)
+                        response = self.client.models.generate_content(
+                            model=model_name,
+                            contents=[pdf_part, directive],
+                            config=types.GenerateContentConfig(
+                                system_instruction=EXHIBITS_PASS_SYSTEM_PROMPT,
+                                response_mime_type="application/json",
+                                response_schema=ExhibitsPassExtraction,
+                                temperature=0.0,
+                                max_output_tokens=self.config.max_output_tokens,
+                                thinking_config=types.ThinkingConfig(thinking_budget=1024),
+                            ),
+                        )
+                        record_llm_response_telemetry(span, response, model_name)
+                        if response.parsed is not None and isinstance(
+                            response.parsed, ExhibitsPassExtraction
+                        ):
+                            return response.parsed
+                        if response.text:
+                            return ExhibitsPassExtraction.model_validate_json(response.text)
+                        raise RuntimeError("Pass 3 exhibits extraction returned empty response.")
+                    except Exception as exc:
+                        last_err = exc
+                        err_str = str(exc)
+                        curr_idx = models_to_try.index(model_name)
+                        next_model = (
+                            models_to_try[curr_idx + 1]
+                            if curr_idx + 1 < len(models_to_try)
+                            else "none"
+                        )
+                        record_model_fallback_event(
+                            span, model_name, next_model, attempt, exc
+                        )
+                        if any(
+                            fatal in err_str
+                            for fatal in ("404", "NOT_FOUND", "EOF while parsing", "json_invalid", "validation error")
+                        ):
+                            logger.warning(
+                                "Pass 3 %s encountered non-retryable error (%s). Falling back to next model.",
+                                model_name,
+                                err_str,
+                            )
+                            break
+                        if attempt < self.config.max_retries:
+                            time.sleep(backoff)
+                            backoff *= 2.0
 
-        raise RuntimeError(
-            f"Pass 3 exhibits extraction failed across models {models_to_try}: {last_err}"
-        ) from last_err
+            raise RuntimeError(
+                f"Pass 3 exhibits extraction failed across models {models_to_try}: {last_err}"
+            ) from last_err
 
     def _extract_single_pass(
         self,
@@ -309,83 +401,97 @@ class GeminiContractParser:
         landowner_id: str | None,
     ) -> GeminiContractExtraction:
         """Legacy single-pass extraction engine for backward compatibility and fallback."""
-        models_to_try = [self.config.gemini_model]
-        if (
-            self.config.gemini_fallback_model
-            and self.config.gemini_fallback_model not in models_to_try
-        ):
-            models_to_try.append(self.config.gemini_fallback_model)
+        with tracer.start_as_current_span("single_pass_extraction") as span:
+            span.set_attribute("pass.name", "single_pass")
+            span.set_attribute("contract.document_id", document_id)
+            span.set_attribute("contract.project_id", project_id)
+            models_to_try = [self.config.gemini_model]
+            if (
+                self.config.gemini_fallback_model
+                and self.config.gemini_fallback_model not in models_to_try
+            ):
+                models_to_try.append(self.config.gemini_fallback_model)
 
-        last_err: Exception | None = None
-        raw_extraction: GeminiContractExtraction | None = None
+            last_err: Exception | None = None
+            raw_extraction: GeminiContractExtraction | None = None
 
-        for model_name in models_to_try:
-            backoff = self.config.initial_backoff_seconds
-            for attempt in range(1, self.config.max_retries + 1):
-                try:
-                    logger.info(
-                        "Single-pass: Invoking Gemini model %s (attempt %d/%d) on %s",
-                        model_name,
-                        attempt,
-                        self.config.max_retries,
-                        gcs_pdf_uri,
-                    )
-                    response = self.client.models.generate_content(
-                        model=model_name,
-                        contents=[
-                            pdf_part,
-                            "Parse this complete legal contract PDF into its lossless hierarchical clause tree, defined terms dictionary, exhibits catalog, normalized landowner special conditions / site constraints, and counterparty names.",
-                        ],
-                        config=types.GenerateContentConfig(
-                            system_instruction=SINGLE_PASS_SYSTEM_PROMPT,
-                            response_mime_type="application/json",
-                            response_schema=GeminiContractExtraction,
-                            temperature=0.0,
-                            max_output_tokens=self.config.max_output_tokens,
-                        ),
-                    )
-                    if response.parsed is not None and isinstance(
-                        response.parsed, GeminiContractExtraction
-                    ):
-                        raw_extraction = response.parsed
-                    elif response.text:
-                        raw_extraction = GeminiContractExtraction.model_validate_json(
-                            response.text
+            for model_name in models_to_try:
+                backoff = self.config.initial_backoff_seconds
+                for attempt in range(1, self.config.max_retries + 1):
+                    try:
+                        logger.info(
+                            "Single-pass: Invoking Gemini model %s (attempt %d/%d) on %s",
+                            model_name,
+                            attempt,
+                            self.config.max_retries,
+                            gcs_pdf_uri,
                         )
-                    else:
-                        raise RuntimeError(
-                            f"Gemini returned empty response for {gcs_pdf_uri}"
+                        response = self.client.models.generate_content(
+                            model=model_name,
+                            contents=[
+                                pdf_part,
+                                "Parse this complete legal contract PDF into its lossless hierarchical clause tree, defined terms dictionary, exhibits catalog, normalized landowner special conditions / site constraints, and counterparty names.",
+                            ],
+                            config=types.GenerateContentConfig(
+                                system_instruction=SINGLE_PASS_SYSTEM_PROMPT,
+                                response_mime_type="application/json",
+                                response_schema=GeminiContractExtraction,
+                                temperature=0.0,
+                                max_output_tokens=self.config.max_output_tokens,
+                            ),
                         )
-                    break
-                except Exception as exc:
-                    last_err = exc
-                    err_str = str(exc)
-                    logger.warning(
-                        "Single-pass Gemini %s attempt %d failed: %s",
-                        model_name,
-                        attempt,
-                        err_str,
-                    )
-                    if "404" in err_str or "NOT_FOUND" in err_str:
+                        record_llm_response_telemetry(span, response, model_name)
+                        if response.parsed is not None and isinstance(
+                            response.parsed, GeminiContractExtraction
+                        ):
+                            raw_extraction = response.parsed
+                        elif response.text:
+                            raw_extraction = GeminiContractExtraction.model_validate_json(
+                                response.text
+                            )
+                        else:
+                            raise RuntimeError(
+                                f"Gemini returned empty response for {gcs_pdf_uri}"
+                            )
                         break
-                    if attempt < self.config.max_retries:
-                        time.sleep(backoff)
-                        backoff *= 2.0
-            if raw_extraction is not None:
-                break
+                    except Exception as exc:
+                        last_err = exc
+                        err_str = str(exc)
+                        curr_idx = models_to_try.index(model_name)
+                        next_model = (
+                            models_to_try[curr_idx + 1]
+                            if curr_idx + 1 < len(models_to_try)
+                            else "none"
+                        )
+                        record_model_fallback_event(
+                            span, model_name, next_model, attempt, exc
+                        )
+                        logger.warning(
+                            "Single-pass Gemini %s attempt %d failed: %s",
+                            model_name,
+                            attempt,
+                            err_str,
+                        )
+                        if "404" in err_str or "NOT_FOUND" in err_str:
+                            break
+                        if attempt < self.config.max_retries:
+                            time.sleep(backoff)
+                            backoff *= 2.0
+                if raw_extraction is not None:
+                    break
 
-        if raw_extraction is None:
-            raise RuntimeError(
-                f"Failed to extract contract via Gemini after trying {models_to_try}: {last_err}"
-            ) from last_err
+            if raw_extraction is None:
+                raise RuntimeError(
+                    f"Failed to extract contract via Gemini after trying {models_to_try}: {last_err}"
+                ) from last_err
 
-        return normalize_and_enrich_extraction(
-            extraction=raw_extraction,
-            document_id=document_id,
-            gcs_pdf_uri=gcs_pdf_uri,
-            project_id=project_id,
-            landowner_id=landowner_id,
-        )
+            return normalize_and_enrich_extraction(
+                extraction=raw_extraction,
+                document_id=document_id,
+                gcs_pdf_uri=gcs_pdf_uri,
+                project_id=project_id,
+                landowner_id=landowner_id,
+            )
 
     def extract(
         self,
@@ -397,98 +503,104 @@ class GeminiContractParser:
         landowner_id: str | None = None,
     ) -> GeminiContractExtraction:
         """Extract structured contract hierarchy using Option 3A Semantic Zone Multi-Pass Pipeline."""
-        pdf_part = self._build_pdf_part(gcs_pdf_uri=gcs_pdf_uri, pdf_bytes=pdf_bytes)
+        with tracer.start_as_current_span("contract_parser.extract") as span:
+            span.set_attribute("contract.document_id", document_id)
+            span.set_attribute("contract.project_id", project_id)
+            if landowner_id:
+                span.set_attribute("contract.landowner_id", landowner_id)
 
-        if not self.config.multi_pass_enabled:
-            logger.info("Multi-pass extraction disabled via configuration; routing to single-pass.")
-            return self._extract_single_pass(
-                pdf_part=pdf_part,
-                document_id=document_id,
-                gcs_pdf_uri=gcs_pdf_uri,
-                project_id=project_id,
-                landowner_id=landowner_id,
+            pdf_part = self._build_pdf_part(gcs_pdf_uri=gcs_pdf_uri, pdf_bytes=pdf_bytes)
+
+            if not self.config.multi_pass_enabled:
+                logger.info("Multi-pass extraction disabled via configuration; routing to single-pass.")
+                return self._extract_single_pass(
+                    pdf_part=pdf_part,
+                    document_id=document_id,
+                    gcs_pdf_uri=gcs_pdf_uri,
+                    project_id=project_id,
+                    landowner_id=landowner_id,
+                )
+
+            # Pass 1: Structure & Zone Discovery
+            try:
+                index = self._discover_contract_structure(pdf_part)
+            except Exception as disc_exc:
+                logger.warning(
+                    "Pass 1 structural discovery failed: %s. Gracefully degrading to single-pass extraction.",
+                    disc_exc,
+                )
+                return self._extract_single_pass(
+                    pdf_part=pdf_part,
+                    document_id=document_id,
+                    gcs_pdf_uri=gcs_pdf_uri,
+                    project_id=project_id,
+                    landowner_id=landowner_id,
+                )
+
+            logger.info(
+                "Pass 1 discovered '%s' (body pp. %d–%d, %d exhibits, %d signers)",
+                index.document_title,
+                index.body_start_page,
+                index.body_end_page,
+                len(index.exhibits),
+                len(index.signers),
             )
 
-        # Pass 1: Structure & Zone Discovery
-        try:
-            index = self._discover_contract_structure(pdf_part)
-        except Exception as disc_exc:
-            logger.warning(
-                "Pass 1 structural discovery failed: %s. Gracefully degrading to single-pass extraction.",
-                disc_exc,
-            )
-            return self._extract_single_pass(
-                pdf_part=pdf_part,
-                document_id=document_id,
-                gcs_pdf_uri=gcs_pdf_uri,
-                project_id=project_id,
-                landowner_id=landowner_id,
-            )
+            # Eagerly initialize client before thread pool dispatch
+            _ = self.client
 
-        logger.info(
-            "Pass 1 discovered '%s' (body pp. %d–%d, %d exhibits, %d signers)",
-            index.document_title,
-            index.body_start_page,
-            index.body_end_page,
-            len(index.exhibits),
-            len(index.signers),
-        )
+            # Concurrent Pass 2 (Body) & Pass 3 (Exhibits) with TracedThreadPoolExecutor
+            with TracedThreadPoolExecutor(max_workers=2) as executor:
+                future_body = executor.submit(self._extract_body_pass, pdf_part, index)
+                future_exhibits = (
+                    executor.submit(self._extract_exhibits_pass, pdf_part, index)
+                    if index.exhibits
+                    else None
+                )
 
-        # Eagerly initialize client before thread pool dispatch
-        _ = self.client
+                body_pass = future_body.result(timeout=self.config.pass_timeout_seconds)
 
-        # Concurrent Pass 2 (Body) & Pass 3 (Exhibits)
-        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
-            future_body = executor.submit(self._extract_body_pass, pdf_part, index)
-            future_exhibits = (
-                executor.submit(self._extract_exhibits_pass, pdf_part, index)
-                if index.exhibits
-                else None
-            )
-
-            body_pass = future_body.result(timeout=self.config.pass_timeout_seconds)
-
-            if future_exhibits is not None:
-                try:
-                    exhibits_pass = future_exhibits.result(
-                        timeout=self.config.pass_timeout_seconds
-                    )
-                except Exception as ex_exc:
-                    logger.warning(
-                        "Pass 3 exhibits extraction failed: %s. Assembling degraded bundle with body only.",
-                        ex_exc,
-                    )
+                if future_exhibits is not None:
+                    try:
+                        exhibits_pass = future_exhibits.result(
+                            timeout=self.config.pass_timeout_seconds
+                        )
+                    except Exception as ex_exc:
+                        logger.warning(
+                            "Pass 3 exhibits extraction failed: %s. Assembling degraded bundle with body only.",
+                            ex_exc,
+                        )
+                        exhibits_pass = ExhibitsPassExtraction()
+                else:
                     exhibits_pass = ExhibitsPassExtraction()
-            else:
-                exhibits_pass = ExhibitsPassExtraction()
 
-        # Compute total pages from discovered boundaries
-        total_pages = index.body_end_page
-        if index.exhibits:
-            total_pages = max(
-                total_pages,
-                max((e.page_end for e in index.exhibits), default=total_pages),
+            # Compute total pages from discovered boundaries
+            total_pages = index.body_end_page
+            if index.exhibits:
+                total_pages = max(
+                    total_pages,
+                    max((e.page_end for e in index.exhibits), default=total_pages),
+                )
+            sig_page = index.signature_end_page or index.signature_start_page
+            if sig_page:
+                total_pages = max(total_pages, sig_page)
+
+            # Assemble unified raw bundle
+            raw_bundle = assemble_multi_pass_extraction(
+                index=index,
+                body_pass=body_pass,
+                exhibits_pass=exhibits_pass,
+                total_pages=total_pages,
             )
-        sig_page = index.signature_end_page or index.signature_start_page
-        if sig_page:
-            total_pages = max(total_pages, sig_page)
 
-        # Assemble unified raw bundle
-        raw_bundle = assemble_multi_pass_extraction(
-            index=index,
-            body_pass=body_pass,
-            exhibits_pass=exhibits_pass,
-            total_pages=total_pages,
-        )
-
-        # Domain normalization, regex enrichment, and tree sorting
-        return normalize_and_enrich_extraction(
-            extraction=raw_bundle,
-            document_id=document_id,
-            gcs_pdf_uri=gcs_pdf_uri,
-            project_id=project_id,
-            landowner_id=landowner_id,
-        )
+            # Domain normalization, regex enrichment, and tree sorting
+            return normalize_and_enrich_extraction(
+                extraction=raw_bundle,
+                document_id=document_id,
+                gcs_pdf_uri=gcs_pdf_uri,
+                project_id=project_id,
+                landowner_id=landowner_id,
+            )
 
 
 def _split_pipe(val: str | None) -> list[str]:

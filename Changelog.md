@@ -160,3 +160,48 @@
 ## [0.8.3] - 2026-10-08
 - Updated Firebase project public display name from `prasanna_looker` to `Invenergy Contracts` (`pr-tftest`) to ensure `%APP_NAME%` placeholder in authentication templates reflects official Invenergy branding.
 - Documented email template configuration options for subject, sender name, reply-to, and body customization via Firebase Console and Identity Platform.
+
+## [0.9.0-draft] - 2026-10-09
+- Fortified `Design/CR8_ENTERPRISE_OBSERVABILITY_AND_DISTRIBUTED_TRACING.md` following systematic EGM architecture review and critique.
+- Resolved raw token telemetry defect by specifying in-loop usage extraction from `GenerateContentResponse.usage_metadata` rather than parsed Pydantic bundles.
+- Added explicit `model_fallback_transition` span events on model retry and quota failover with reason attributes and backoff latency.
+- Configured OpenTelemetry composite propagators (`TraceContextTextMapPropagator` + `CloudTraceFormatPropagator`) to seamlessly capture upstream `X-Cloud-Trace-Context` headers from Google Cloud Run and Cloud Load Balancing.
+- Isolated ERP business metadata under `contract` sub-dictionary in `CloudLoggingJsonFormatter` to prevent namespace collisions with Google Cloud Project IDs (`pr-tftest`).
+- Added native Google Cloud Error Reporting compliance with formatted tracebacks in the `message` field and `serviceContext` metadata.
+- Integrated Uvicorn log interception to eliminate interleaved unformatted stdout streams in Cloud Run.
+- Mitigated serverless CPU freeze span loss with tuned `schedule_delay_millis=500` and post-ingestion / shutdown `force_flush` lifecycle hooks.
+- Added programmatic PII scrubbing to sanitize Pydantic `ValidationError` payload dumps before logging to stdout.
+- Updated `pyproject.toml` dependency specifications for OpenTelemetry and GCP Cloud Trace packages.
+
+## [0.9.0] - 2026-10-09
+- Implemented Change Request CR-8: Enterprise Observability, Structured Cloud Logging & Distributed Tracing.
+- Added telemetry foundation package `contract_parser/telemetry/`:
+  * `logging_formatter.py`: Implemented `CloudLoggingJsonFormatter` outputting single-line Google Cloud Logging schema JSON to `stdout` (`severity`, `time`, `logging.googleapis.com/trace`, `logging.googleapis.com/spanId`, `logging.googleapis.com/trace_sampled`, `serviceContext`), automated PII sanitization (redacting sensitive keys and Pydantic validation dumps), Error Reporting traceback concatenation in `message`, and Uvicorn log interception (`setup_structured_logging`).
+  * `tracing.py`: Implemented OpenTelemetry TracerProvider (`setup_telemetry`) with composite propagators (`TraceContextTextMapPropagator` + `CloudTraceFormatPropagator`) for W3C `traceparent` and Google Cloud `X-Cloud-Trace-Context` headers, serverless BatchSpanProcessor (`schedule_delay_millis=500`), and lifecycle flushing (`flush_telemetry`, `shutdown_telemetry`).
+  * `thread_propagation.py`: Implemented `TracedThreadPoolExecutor` and `wrap_with_context` using `contextvars.copy_context().run` to ensure concurrent passes safely inherit active trace and span contexts across threads.
+- Updated `contract_parser/config.py` with telemetry configuration parameters (`log_format`, `log_level`, `cloud_trace_enabled`, `cloud_trace_schedule_delay_ms`, `telemetry_service_name`, `telemetry_service_version`, `telemetry_sample_rate`).
+- Instrumented `contract_parser/gemini_parser.py`:
+  * Replaced standard thread pool with `TracedThreadPoolExecutor` for concurrent Pass 2 (Body) and Pass 3 (Exhibits) extraction.
+  * Wrapped passes in spans (`pass_1_structure_discovery`, `pass_2_body_extraction`, `pass_3_exhibits_extraction`, `single_pass_extraction`, `contract_parser.extract`).
+  * Added in-loop Gemini LLM token metric extraction (`gen_ai.usage.prompt_tokens`, `gen_ai.usage.completion_tokens`, `gen_ai.usage.total_tokens`, `gen_ai.usage.cached_tokens`, `gen_ai.response.model`, `gen_ai.system`) from raw `GenerateContentResponse.usage_metadata`.
+  * Added `model_fallback_transition` span events on retry, quota exhaustion, or model failover.
+- Instrumented `contract_parser/storage.py`:
+  * Added `storage.gcs.archive_pdf` span for GCS PDF archiving with byte sizes and bucket URIs.
+  * Added `storage.bigquery.persist_bundle` and `storage.bigquery.insert_rows.{table_name}` child spans for table streaming ingestion.
+  * Added `storage.gcs.export_csvs` span for CSV exports.
+- Instrumented `contract_parser/app.py`:
+  * Configured structured logging and telemetry setup in `create_app()`.
+  * Instrumented FastAPI routes via `FastAPIInstrumentor`.
+  * Added FastAPI modern `lifespan` context manager executing `flush_telemetry` and `shutdown_telemetry` on application termination.
+  * Wrapped `ingest_pdf_bytes` in `pipeline.ingest_pdf` span with post-ingestion `flush_telemetry`.
+- Created comprehensive automated test suite `tests/test_cr8_observability_and_tracing.py` covering UT-1 through UT-7 with 100% pass rate.
+
+## [0.9.1] - 2026-10-09
+- Added Customer Environment Deployment Package for enterprise client handover (Sophia):
+  * `scripts/sql/01_create_tables.sql`: DDL for all 8 BigQuery tables (`projects`, `landowners`, `documents`, `clauses`, `defined_terms`, `exhibits_catalog`, `special_conditions`, `dnd_signoffs`) with data types, clustering, and date partitioning.
+  * `scripts/sql/02_create_views.sql`: Standardized analytical deduplication views (`v_active_*`) implementing `QUALIFY ROW_NUMBER() = 1` active-state resolution and unified `v_contract_intelligence_mart`.
+  * `scripts/sql/03_seed_erp_projects.sql`: Baseline ERP project seed records.
+  * `scripts/setup_gcp_environment.sh`: Automated, idempotent shell script provisioning 9 GCP APIs, GCS bucket, BigQuery datasets, tables, views, seed data, and least-privilege runtime service account IAM role bindings.
+  * `.env.example`: Comprehensive environment variable configuration template.
+  * `README.md`: Customer onboarding guide covering architecture, automated/manual GCP setup, BigQuery Data Analytics Agent configuration, Firebase Auth setup, local testing, Cloud Run deployment, and operational troubleshooting.
+

@@ -98,6 +98,31 @@ class PipelineConfig:
             if e.strip()
         }
     )
+    # CR-8: Observability, Structured Logging & Distributed Tracing
+    log_format: str = field(
+        default_factory=lambda: os.getenv("LOG_FORMAT", "json").lower()
+    )
+    log_level: str = field(
+        default_factory=lambda: os.getenv("LOG_LEVEL", "INFO").upper()
+    )
+    cloud_trace_enabled: bool = field(
+        default_factory=lambda: os.getenv("CLOUD_TRACE_ENABLED", "true").lower()
+        in ("true", "1", "yes")
+    )
+    cloud_trace_schedule_delay_ms: int = field(
+        default_factory=lambda: int(
+            os.getenv("CLOUD_TRACE_SCHEDULE_DELAY_MS", "500")
+        )
+    )
+    telemetry_service_name: str = field(
+        default_factory=lambda: os.getenv("TELEMETRY_SERVICE_NAME", "contract-parser")
+    )
+    telemetry_service_version: str = field(
+        default_factory=lambda: os.getenv("TELEMETRY_SERVICE_VERSION", "0.9.0")
+    )
+    telemetry_sample_rate: float = field(
+        default_factory=lambda: float(os.getenv("TELEMETRY_SAMPLE_RATE", "1.0"))
+    )
 
     def ensure_genai_env(self) -> None:
         """Ensure environment variables required by google-genai are set."""

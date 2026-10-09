@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+from contextlib import asynccontextmanager
 import json
 import logging
 import re
@@ -48,8 +49,16 @@ from contract_parser.schemas import (
     utc_now_iso,
 )
 from contract_parser.storage import ContractStorageService, compute_document_id
+from contract_parser.telemetry import (
+    flush_telemetry,
+    get_tracer,
+    setup_structured_logging,
+    setup_telemetry,
+    shutdown_telemetry,
+)
 
 logger = logging.getLogger(__name__)
+tracer = get_tracer("contract_parser.app")
 
 
 class RequestLinkPayload(BaseModel):
@@ -82,130 +91,137 @@ def ingest_pdf_bytes(
     store = storage_service or ContractStorageService(cfg)
     parser = extractor or GeminiContractParser(cfg)
 
-    store.ensure_portfolio_seed()
-    try:
-        project = store.get_project(project_id)
-    except KeyError:
-        project = store.get_project("prj_cedar_lantern_wind")
-
     doc_id = compute_document_id(pdf_bytes)
-    doc_id, gcs_pdf_uri = store.archive_raw_pdf(
-        pdf_bytes=pdf_bytes, filename=filename, document_id=doc_id
-    )
-    gcs_export_prefix = f"gs://{cfg.gcs_bucket_name}/exports/{doc_id}/"
-    ingested_ts = utc_now_iso()
+    with tracer.start_as_current_span("pipeline.ingest_pdf") as span:
+        span.set_attribute("contract.document_id", doc_id)
+        span.set_attribute("contract.project_id", project_id)
+        span.set_attribute("contract.filename", filename)
 
-    # Register initial PROCESSING version
-    initial_doc = DocumentRegistryRow(
-        document_id=doc_id,
-        filename=Path(filename).name,
-        gcs_pdf_uri=gcs_pdf_uri,
-        gcs_export_prefix=gcs_export_prefix,
-        page_count=1,
-        contracting_parties_json="[]",
-        effective_date=None,
-        flagged_node_count=0,
-        special_conditions_count=0,
-        ingestion_status=IngestionStatus.PROCESSING,
-        error_message=None,
-        ingested_at=ingested_ts,
-        updated_at=ingested_ts,
-        project_id=project.project_id,
-        landowner_id=landowner_id or "lnd_unassigned",
-        energy_technology=project.energy_technology,
-    )
-    store.append_document_row(initial_doc)
-
-    try:
+        store.ensure_portfolio_seed()
         try:
-            extraction = parser.extract(
-                document_id=doc_id,
-                gcs_pdf_uri=gcs_pdf_uri,
-                pdf_bytes=pdf_bytes,
-                project_id=project.project_id,
-                landowner_id=landowner_id,
-            )
-        except TypeError:
-            extraction = parser.extract(
-                document_id=doc_id,
-                gcs_pdf_uri=gcs_pdf_uri,
-                pdf_bytes=pdf_bytes,
-            )
+            project = store.get_project(project_id)
+        except KeyError:
+            project = store.get_project("prj_cedar_lantern_wind")
 
-        grantor_name = (
-            extraction.grantor_landowner_name
-            or Path(filename).stem.replace("_", " ")
+        doc_id, gcs_pdf_uri = store.archive_raw_pdf(
+            pdf_bytes=pdf_bytes, filename=filename, document_id=doc_id
         )
-        grantee_name = extraction.grantee_entity_name
-        resolved_landowner_id = (
-            landowner_id
-            if (landowner_id and landowner_id != "lnd_unassigned")
-            else _make_landowner_id(project.project_id, grantor_name)
-        )
-        flagged_count = sum(
-            1
-            for c in extraction.clauses
-            if c.hitl_status
-            in (HITLStatus.FLAGGED_FOR_REVIEW, HITLStatus.PLACEHOLDER_FOR_REVIEW)
-        )
-        final_status = (
-            IngestionStatus.NEEDS_HITL_REVIEW
-            if flagged_count > 0
-            else IngestionStatus.VERIFIED_COMPLETE
-        )
-        completed_doc = DocumentRegistryRow(
+        gcs_export_prefix = f"gs://{cfg.gcs_bucket_name}/exports/{doc_id}/"
+        ingested_ts = utc_now_iso()
+
+        # Register initial PROCESSING version
+        initial_doc = DocumentRegistryRow(
             document_id=doc_id,
             filename=Path(filename).name,
             gcs_pdf_uri=gcs_pdf_uri,
             gcs_export_prefix=gcs_export_prefix,
-            page_count=max(1, extraction.page_count),
-            contracting_parties_json=extraction.contracting_parties_json or "[]",
-            effective_date=extraction.effective_date,
-            flagged_node_count=flagged_count,
-            special_conditions_count=len(extraction.special_conditions),
-            ingestion_status=final_status,
+            page_count=1,
+            contracting_parties_json="[]",
+            effective_date=None,
+            flagged_node_count=0,
+            special_conditions_count=0,
+            ingestion_status=IngestionStatus.PROCESSING,
             error_message=None,
             ingested_at=ingested_ts,
-            updated_at=utc_now_iso(),
+            updated_at=ingested_ts,
             project_id=project.project_id,
-            landowner_id=resolved_landowner_id,
+            landowner_id=landowner_id or "lnd_unassigned",
             energy_technology=project.energy_technology,
-            grantor_landowner_name=grantor_name,
-            grantee_entity_name=grantee_name,
         )
-        stamped_scs = [
-            sc.model_copy(
+        store.append_document_row(initial_doc)
+
+        try:
+            try:
+                extraction = parser.extract(
+                    document_id=doc_id,
+                    gcs_pdf_uri=gcs_pdf_uri,
+                    pdf_bytes=pdf_bytes,
+                    project_id=project.project_id,
+                    landowner_id=landowner_id,
+                )
+            except TypeError:
+                extraction = parser.extract(
+                    document_id=doc_id,
+                    gcs_pdf_uri=gcs_pdf_uri,
+                    pdf_bytes=pdf_bytes,
+                )
+
+            grantor_name = (
+                extraction.grantor_landowner_name
+                or Path(filename).stem.replace("_", " ")
+            )
+            grantee_name = extraction.grantee_entity_name
+            resolved_landowner_id = (
+                landowner_id
+                if (landowner_id and landowner_id != "lnd_unassigned")
+                else _make_landowner_id(project.project_id, grantor_name)
+            )
+            flagged_count = sum(
+                1
+                for c in extraction.clauses
+                if c.hitl_status
+                in (HITLStatus.FLAGGED_FOR_REVIEW, HITLStatus.PLACEHOLDER_FOR_REVIEW)
+            )
+            final_status = (
+                IngestionStatus.NEEDS_HITL_REVIEW
+                if flagged_count > 0
+                else IngestionStatus.VERIFIED_COMPLETE
+            )
+            completed_doc = DocumentRegistryRow(
+                document_id=doc_id,
+                filename=Path(filename).name,
+                gcs_pdf_uri=gcs_pdf_uri,
+                gcs_export_prefix=gcs_export_prefix,
+                page_count=max(1, extraction.page_count),
+                contracting_parties_json=extraction.contracting_parties_json or "[]",
+                effective_date=extraction.effective_date,
+                flagged_node_count=flagged_count,
+                special_conditions_count=len(extraction.special_conditions),
+                ingestion_status=final_status,
+                error_message=None,
+                ingested_at=ingested_ts,
+                updated_at=utc_now_iso(),
+                project_id=project.project_id,
+                landowner_id=resolved_landowner_id,
+                energy_technology=project.energy_technology,
+                grantor_landowner_name=grantor_name,
+                grantee_entity_name=grantee_name,
+            )
+            stamped_scs = [
+                sc.model_copy(
+                    update={
+                        "project_id": project.project_id,
+                        "landowner_id": resolved_landowner_id,
+                    }
+                )
+                for sc in extraction.special_conditions
+            ]
+            bundle = ParsedContractBundle(
+                document=completed_doc,
+                clauses=extraction.clauses,
+                defined_terms=extraction.defined_terms,
+                exhibits_catalog=extraction.exhibits_catalog,
+                special_conditions=stamped_scs,
+            )
+            store.persist_bundle(bundle)
+            bundle, _, _ = store.bind_document_to_portfolio(
+                bundle,
+                project_id=project.project_id,
+                landowner_id=resolved_landowner_id,
+            )
+            flush_telemetry(timeout_millis=2000)
+            return bundle
+        except Exception as exc:
+            failed_doc = initial_doc.model_copy(
                 update={
-                    "project_id": project.project_id,
-                    "landowner_id": resolved_landowner_id,
+                    "ingestion_status": IngestionStatus.FAILED,
+                    "error_message": str(exc),
+                    "updated_at": utc_now_iso(),
                 }
             )
-            for sc in extraction.special_conditions
-        ]
-        bundle = ParsedContractBundle(
-            document=completed_doc,
-            clauses=extraction.clauses,
-            defined_terms=extraction.defined_terms,
-            exhibits_catalog=extraction.exhibits_catalog,
-            special_conditions=stamped_scs,
-        )
-        store.persist_bundle(bundle)
-        bundle, _, _ = store.bind_document_to_portfolio(
-            bundle,
-            project_id=project.project_id,
-            landowner_id=resolved_landowner_id,
-        )
-        return bundle
-    except Exception as exc:
-        failed_doc = initial_doc.model_copy(
-            update={
-                "ingestion_status": IngestionStatus.FAILED,
-                "error_message": str(exc),
-                "updated_at": utc_now_iso(),
-            }
-        )
-        store.append_document_row(failed_doc)
-        raise
+            store.append_document_row(failed_doc)
+            flush_telemetry(timeout_millis=2000)
+            raise
 
 
 def ingest_contract(
@@ -318,10 +334,32 @@ def create_app(
     store = storage_service or ContractStorageService(cfg)
     parser = extractor or GeminiContractParser(cfg)
 
+    # CR-8: Structured logging & OpenTelemetry initialization
+    if cfg.log_format == "json":
+        setup_structured_logging(
+            gcp_project_id=cfg.google_cloud_project,
+            log_level=cfg.log_level,
+            service_name=cfg.telemetry_service_name,
+            service_version=cfg.telemetry_service_version,
+        )
+    setup_telemetry(
+        project_id=cfg.google_cloud_project,
+        service_name=cfg.telemetry_service_name,
+        service_version=cfg.telemetry_service_version,
+        sample_rate=cfg.telemetry_sample_rate,
+    )
+
+    @asynccontextmanager
+    async def lifespan(app: FastAPI):
+        yield
+        flush_telemetry(timeout_millis=2000)
+        shutdown_telemetry()
+
     fastapi_app = FastAPI(
         title="Hierarchical Contract Parsing & Portfolio Obligation Intelligence",
-        version="0.8.0",
+        version="0.9.0",
         description="Gemini-First Multimodal Contract Hierarchy Parser, 8-Table Portfolio & Field Crew DND Store, BigQuery Data Agent Chat, and pdf.js HITL Review UI",
+        lifespan=lifespan,
     )
     fastapi_app.add_middleware(
         CORSMiddleware,
@@ -329,6 +367,13 @@ def create_app(
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    try:
+        from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+
+        FastAPIInstrumentor.instrument_app(fastapi_app)
+    except Exception as exc:
+        logger.warning("FastAPI OpenTelemetry instrumentation warning: %s", exc)
 
     fastapi_app.state.config = cfg
     fastapi_app.state.storage = store

@@ -46,8 +46,10 @@ from contract_parser.schemas import (
     build_dnd_checklist_item,
     utc_now_iso,
 )
+from contract_parser.telemetry import get_tracer
 
 logger = logging.getLogger(__name__)
+tracer = get_tracer("contract_parser.storage")
 
 
 def compute_document_id(pdf_bytes: bytes) -> str:
@@ -571,23 +573,27 @@ class ContractStorageService:
         self, pdf_bytes: bytes, filename: str, document_id: str | None = None
     ) -> tuple[str, str]:
         """Archive the source PDF to local disk and gs://<bucket>/raw/<document_id>/<filename>."""
-        self._ensure_local_dirs_and_db()
-        doc_id = document_id or compute_document_id(pdf_bytes)
-        safe_name = Path(filename).name
-        local_path = self.local_raw_dir / doc_id / safe_name
-        local_path.parent.mkdir(parents=True, exist_ok=True)
-        local_path.write_bytes(pdf_bytes)
+        with tracer.start_as_current_span("storage.gcs.archive_pdf") as span:
+            self._ensure_local_dirs_and_db()
+            doc_id = document_id or compute_document_id(pdf_bytes)
+            safe_name = Path(filename).name
+            local_path = self.local_raw_dir / doc_id / safe_name
+            local_path.parent.mkdir(parents=True, exist_ok=True)
+            local_path.write_bytes(pdf_bytes)
 
-        gcs_uri = f"gs://{self.config.gcs_bucket_name}/raw/{doc_id}/{safe_name}"
-        if self.config.use_cloud_storage:
-            try:
-                bucket = self.gcs_client.bucket(self.config.gcs_bucket_name)
-                blob = bucket.blob(f"raw/{doc_id}/{safe_name}")
-                blob.upload_from_string(pdf_bytes, content_type="application/pdf")
-                logger.info("Uploaded raw PDF to %s", gcs_uri)
-            except Exception as exc:
-                logger.warning("GCS upload fallback to local disk for %s: %s", gcs_uri, exc)
-        return doc_id, gcs_uri
+            gcs_uri = f"gs://{self.config.gcs_bucket_name}/raw/{doc_id}/{safe_name}"
+            span.set_attribute("contract.document_id", doc_id)
+            span.set_attribute("gcs.uri", gcs_uri)
+            span.set_attribute("byte_size", len(pdf_bytes))
+            if self.config.use_cloud_storage:
+                try:
+                    bucket = self.gcs_client.bucket(self.config.gcs_bucket_name)
+                    blob = bucket.blob(f"raw/{doc_id}/{safe_name}")
+                    blob.upload_from_string(pdf_bytes, content_type="application/pdf")
+                    logger.info("Uploaded raw PDF to %s", gcs_uri)
+                except Exception as exc:
+                    logger.warning("GCS upload fallback to local disk for %s: %s", gcs_uri, exc)
+            return doc_id, gcs_uri
 
     def read_pdf_bytes(self, document_id: str) -> bytes:
         """Read PDF bytes from local mirror or GCS raw/<document_id>/."""
@@ -640,20 +646,31 @@ class ContractStorageService:
         """Append rows to local SQLite and (when enabled) BigQuery via insert_rows_json."""
         if not rows_json:
             return
-        self._ensure_local_dirs_and_db()
-        with sqlite3.connect(self.local_db_path) as conn:
-            cols = ", ".join(columns)
-            placeholders = ", ".join(["?"] * len(columns))
-            conn.executemany(
-                f"INSERT INTO {table_name} ({cols}) VALUES ({placeholders})",
-                [[r[c] for c in columns] for r in rows_json],
-            )
-        if self.config.use_bigquery and not sqlite_only:
-            self.ensure_bq_tables()
-            table_id = f"{self.config.bq_dataset_fqn}.{table_name}"
-            errors = self.bq_client.insert_rows_json(table_id, rows_json)
-            if errors:
-                logger.warning("BigQuery insert_rows_json errors on %s: %s", table_name, errors)
+        with tracer.start_as_current_span(
+            f"storage.bigquery.insert_rows.{table_name}"
+        ) as span:
+            span.set_attribute("bigquery.table_name", table_name)
+            span.set_attribute("row_count", len(rows_json))
+            self._ensure_local_dirs_and_db()
+            with sqlite3.connect(self.local_db_path) as conn:
+                cols = ", ".join(columns)
+                placeholders = ", ".join(["?"] * len(columns))
+                conn.executemany(
+                    f"INSERT INTO {table_name} ({cols}) VALUES ({placeholders})",
+                    [[r[c] for c in columns] for r in rows_json],
+                )
+            if self.config.use_bigquery and not sqlite_only:
+                self.ensure_bq_tables()
+                table_id = f"{self.config.bq_dataset_fqn}.{table_name}"
+                span.set_attribute("bigquery.table_id", table_id)
+                errors = self.bq_client.insert_rows_json(table_id, rows_json)
+                if errors:
+                    span.set_attribute("bigquery.insert_errors_count", len(errors))
+                    logger.warning(
+                        "BigQuery insert_rows_json errors on %s: %s",
+                        table_name,
+                        errors,
+                    )
 
     def append_project_row(self, project: ProjectRow, *, sqlite_only: bool = False) -> None:
         """Append a new version of ProjectRow (6th normalized table) to SQLite and BigQuery."""
@@ -778,58 +795,65 @@ class ContractStorageService:
 
     def persist_bundle(self, bundle: ParsedContractBundle) -> dict[str, str]:
         """Stream all 5 document-level tables in append-only mode and export utf-8-sig CSVs to local & GCS."""
-        self._append_bundle_rows(bundle, sqlite_only=False)
-        return self.export_csvs(bundle)
+        with tracer.start_as_current_span("storage.bigquery.persist_bundle") as span:
+            span.set_attribute("contract.document_id", bundle.document.document_id)
+            span.set_attribute("contract.project_id", bundle.document.project_id)
+            span.set_attribute("bigquery.table_count", 8)
+            self._append_bundle_rows(bundle, sqlite_only=False)
+            return self.export_csvs(bundle)
 
     def export_csvs(self, bundle: ParsedContractBundle) -> dict[str, str]:
         """Write utf-8-sig CSV files (`clauses.csv`, `defined_terms.csv`, `exhibits_catalog.csv`, `special_conditions.csv`, `dnd_checklist_signoffs.csv`) to disk and GCS."""
-        self._ensure_local_dirs_and_db()
-        doc_id = bundle.document.document_id
-        doc_export_dir = self.local_exports_dir / doc_id
-        doc_export_dir.mkdir(parents=True, exist_ok=True)
+        with tracer.start_as_current_span("storage.gcs.export_csvs") as span:
+            span.set_attribute("contract.document_id", bundle.document.document_id)
+            self._ensure_local_dirs_and_db()
+            doc_id = bundle.document.document_id
+            doc_export_dir = self.local_exports_dir / doc_id
+            doc_export_dir.mkdir(parents=True, exist_ok=True)
 
-        artifacts: dict[str, tuple[list[str], list[dict[str, object]]]] = {
-            "clauses.csv": (
-                CLAUSE_CSV_COLUMNS,
-                [c.model_dump(mode="json") for c in bundle.clauses],
-            ),
-            "defined_terms.csv": (
-                DEFINED_TERM_CSV_COLUMNS,
-                [t.model_dump(mode="json") for t in bundle.defined_terms],
-            ),
-            "exhibits_catalog.csv": (
-                EXHIBIT_CATALOG_CSV_COLUMNS,
-                [e.model_dump(mode="json") for e in bundle.exhibits_catalog],
-            ),
-            "special_conditions.csv": (
-                SPECIAL_CONDITION_CSV_COLUMNS,
-                [sc.model_dump(mode="json") for sc in bundle.special_conditions],
-            ),
-        }
+            artifacts: dict[str, tuple[list[str], list[dict[str, object]]]] = {
+                "clauses.csv": (
+                    CLAUSE_CSV_COLUMNS,
+                    [c.model_dump(mode="json") for c in bundle.clauses],
+                ),
+                "defined_terms.csv": (
+                    DEFINED_TERM_CSV_COLUMNS,
+                    [t.model_dump(mode="json") for t in bundle.defined_terms],
+                ),
+                "exhibits_catalog.csv": (
+                    EXHIBIT_CATALOG_CSV_COLUMNS,
+                    [e.model_dump(mode="json") for e in bundle.exhibits_catalog],
+                ),
+                "special_conditions.csv": (
+                    SPECIAL_CONDITION_CSV_COLUMNS,
+                    [sc.model_dump(mode="json") for sc in bundle.special_conditions],
+                ),
+            }
 
-        exported_paths: dict[str, str] = {}
-        for filename, (columns, rows) in artifacts.items():
-            buf = io.StringIO()
-            writer = csv.DictWriter(buf, fieldnames=columns, extrasaction="ignore")
-            writer.writeheader()
-            for r in rows:
-                writer.writerow({col: ("" if r.get(col) is None else r.get(col)) for col in columns})
-            csv_bytes = buf.getvalue().encode("utf-8-sig")
+            exported_paths: dict[str, str] = {}
+            for filename, (columns, rows) in artifacts.items():
+                buf = io.StringIO()
+                writer = csv.DictWriter(buf, fieldnames=columns, extrasaction="ignore")
+                writer.writeheader()
+                for r in rows:
+                    writer.writerow({col: ("" if r.get(col) is None else r.get(col)) for col in columns})
+                csv_bytes = buf.getvalue().encode("utf-8-sig")
 
-            local_file = doc_export_dir / filename
-            local_file.write_bytes(csv_bytes)
-            exported_paths[filename] = str(local_file)
+                local_file = doc_export_dir / filename
+                local_file.write_bytes(csv_bytes)
+                exported_paths[filename] = str(local_file)
 
-            if self.config.use_cloud_storage:
-                try:
-                    bucket = self.gcs_client.bucket(self.config.gcs_bucket_name)
-                    blob = bucket.blob(f"exports/{doc_id}/{filename}")
-                    blob.upload_from_string(csv_bytes, content_type="text/csv; charset=utf-8")
-                except Exception as exc:
-                    logger.warning("GCS CSV upload warning for %s: %s", filename, exc)
+                if self.config.use_cloud_storage:
+                    try:
+                        bucket = self.gcs_client.bucket(self.config.gcs_bucket_name)
+                        blob = bucket.blob(f"exports/{doc_id}/{filename}")
+                        blob.upload_from_string(csv_bytes, content_type="text/csv; charset=utf-8")
+                    except Exception as exc:
+                        logger.warning("GCS CSV upload warning for %s: %s", filename, exc)
 
-        exported_paths["dnd_checklist_signoffs.csv"] = self._export_dnd_signoffs_csv(doc_id)
-        return exported_paths
+            exported_paths["dnd_checklist_signoffs.csv"] = self._export_dnd_signoffs_csv(doc_id)
+            span.set_attribute("csv.files_count", len(exported_paths))
+            return exported_paths
 
     @staticmethod
     def _coalesce_doc_field(k: str, val: object) -> object:
