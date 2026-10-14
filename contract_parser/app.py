@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 from contextlib import asynccontextmanager
+import hashlib
 import json
 import logging
 import re
@@ -41,15 +42,26 @@ from contract_parser.schemas import (
     CreateProjectRequest,
     DocumentRegistryRow,
     EnergyTechnology,
+    FormType,
     HITLStatus,
     IngestionStatus,
     ParsedContractBundle,
     ProjectRow,
+    TemplateClauseRow,
+    TemplateExtractionBundle,
+    TemplateRegistryRow,
+    ContractVarianceBundle,
     parse_data_agent_events,
     utc_now_iso,
 )
 from contract_parser.storage import ContractStorageService, compute_document_id
+from contract_parser.variance_engine import (
+    calculate_template_affinity,
+    rank_candidate_templates,
+    run_contract_variance_comparison,
+)
 from contract_parser.telemetry import (
+
     flush_telemetry,
     get_tracer,
     setup_structured_logging,
@@ -328,10 +340,11 @@ def create_app(
     config: PipelineConfig | None = None,
     storage_service: ContractStorageService | None = None,
     extractor: ContractExtractorProtocol | None = None,
+    storage: ContractStorageService | None = None,
 ) -> FastAPI:
     """Create and configure the FastAPI application."""
     cfg = config or PipelineConfig()
-    store = storage_service or ContractStorageService(cfg)
+    store = storage or storage_service or ContractStorageService(cfg)
     parser = extractor or GeminiContractParser(cfg)
 
     # CR-8: Structured logging & OpenTelemetry initialization
@@ -797,7 +810,286 @@ def create_app(
             ) from exc
         return response.model_dump(mode="json")
 
+    # =========================================================================
+    # CR-9: Regional Template Studio & Canonical AST Registry Routes
+    # =========================================================================
+
+    @fastapi_app.get("/template-studio", response_class=HTMLResponse)
+    async def serve_template_studio() -> HTMLResponse:
+        ts_file = static_dir / "template_studio.html"
+        if not ts_file.exists():
+            raise HTTPException(status_code=404, detail="Template studio UI not found")
+        return HTMLResponse(content=ts_file.read_text(encoding="utf-8"))
+
+    @fastapi_app.post("/api/v1/templates/upload")
+    async def upload_template_endpoint(
+        file: UploadFile = File(...),
+        country: str = Form("US"),
+        state_province: str | None = Form(None),
+        energy_technology: str | None = Form(None),
+        form_type: str = Form(...),
+        vintage_year: str = Form(...),
+        revision: str = Form("v1"),
+        template_name: str | None = Form(None),
+        notes: str | None = Form(None),
+        state: str | None = Form(None),
+        technology: str | None = Form(None),
+        form_name: str | None = Form(None),
+        current_user: UserContext = Depends(auth_dep),
+    ) -> dict[str, object]:
+        require_admin(current_user)
+        if not file.filename or not file.filename.lower().endswith(".pdf"):
+            raise HTTPException(status_code=400, detail="Only .pdf files are supported")
+        pdf_bytes = await file.read()
+        if not pdf_bytes:
+            raise HTTPException(status_code=400, detail="Uploaded template PDF file is empty")
+
+        active_store: ContractStorageService = fastapi_app.state.storage
+        sha256 = hashlib.sha256(pdf_bytes).hexdigest()
+
+        # Deduplication by SHA-256
+        existing = active_store.get_template_by_hash(sha256)
+        if existing:
+            bundle = active_store.get_template_bundle(existing.template_id)
+            if bundle:
+                return bundle.model_dump(mode="json")
+
+        country_clean = (country or "US").strip().upper()
+        state_clean = (state_province or state or "").strip().upper()
+        tech_clean = (energy_technology or technology or "").strip()
+        if not state_clean:
+            raise HTTPException(status_code=400, detail="state_province or state is required")
+        if not tech_clean:
+            raise HTTPException(status_code=400, detail="energy_technology or technology is required")
+        form_clean = form_type.strip()
+        vintage_clean = str(vintage_year).strip()
+        rev_clean = revision.strip().lower() or "v1"
+
+        slug_tech = re.sub(r"[^a-z0-9]+", "_", tech_clean.lower()).strip("_")
+        slug_form = re.sub(r"[^a-z0-9]+", "_", form_clean.lower()).strip("_")
+        slug_state = re.sub(r"[^a-z0-9]+", "_", state_clean.lower()).strip("_")
+        slug_country = re.sub(r"[^a-z0-9]+", "_", country_clean.lower()).strip("_")
+        template_id = f"tpl_{slug_country}_{slug_state}_{slug_tech}_{slug_form}_{vintage_clean}_{rev_clean}"
+
+        raw_name = template_name or form_name
+        tpl_name = (
+            raw_name.strip()
+            if raw_name and raw_name.strip()
+            else f"{state_clean} {form_clean.replace('_', ' ').title()} ({vintage_clean})"
+        )
+
+        tpl_dir = active_store.local_root / "templates" / template_id
+        tpl_dir.mkdir(parents=True, exist_ok=True)
+        (tpl_dir / file.filename).write_bytes(pdf_bytes)
+        (tpl_dir / f"{template_id}.pdf").write_bytes(pdf_bytes)
+
+        bundle: TemplateExtractionBundle | None = None
+        extractor = fastapi_app.state.extractor
+        if extractor is not None and hasattr(extractor, "extract_template"):
+            try:
+                bundle = await asyncio.to_thread(
+                    extractor.extract_template,
+                    pdf_bytes=pdf_bytes,
+                    filename=file.filename,
+                    template_id=template_id,
+                    template_name=tpl_name,
+                    country=country_clean,
+                    state_province=state_clean,
+                    energy_technology=tech_clean,
+                    form_type=form_clean,
+                    vintage_year=vintage_clean,
+                    revision=rev_clean,
+                    gcs_pdf_uri="",
+                    created_by=current_user.email,
+                )
+            except Exception as exc:
+                logger.warning(
+                    "Gemini template extraction failed for %s, falling back to offline: %s",
+                    template_id,
+                    exc,
+                )
+
+        if bundle is None:
+            bundle = active_store._extract_template_offline(
+                pdf_bytes=pdf_bytes,
+                filename=file.filename,
+                template_id=template_id,
+                template_name=tpl_name,
+                country=country_clean,
+                state_province=state_clean,
+                energy_technology=tech_clean,
+                form_type=form_clean,
+                vintage_year=vintage_clean,
+                revision=rev_clean,
+                gcs_pdf_uri="",
+            )
+            bundle.metadata.created_by = current_user.email
+
+        active_store.insert_template_bundle(bundle)
+        return bundle.model_dump(mode="json")
+
+    @fastapi_app.get("/api/v1/templates")
+    async def list_templates_endpoint(
+        country: str | None = None,
+        state_province: str | None = None,
+        state: str | None = None,
+        energy_technology: str | None = None,
+        technology: str | None = None,
+        form_type: str | None = None,
+        vintage_year: str | None = None,
+        current_user: UserContext = Depends(auth_dep),
+    ) -> list[dict[str, object]]:
+        active_store: ContractStorageService = fastapi_app.state.storage
+        st = state_province or state
+        tech = energy_technology or technology
+        templates = active_store.list_templates(
+            country=country,
+            state_province=st,
+            energy_technology=tech,
+            form_type=form_type,
+            vintage_year=vintage_year,
+        )
+        return [t.model_dump(mode="json") for t in templates]
+
+    @fastapi_app.get("/api/v1/templates/{template_id}")
+    async def get_template_bundle_endpoint(
+        template_id: str,
+        current_user: UserContext = Depends(auth_dep),
+    ) -> dict[str, object]:
+        active_store: ContractStorageService = fastapi_app.state.storage
+        bundle = active_store.get_template_bundle(template_id)
+        if not bundle:
+            raise HTTPException(status_code=404, detail=f"Template {template_id} not found")
+        return bundle.model_dump(mode="json")
+
+    @fastapi_app.get("/api/v1/templates/{template_id}/pdf")
+    async def get_template_pdf_endpoint(
+        template_id: str,
+        current_user: UserContext = Depends(auth_dep),
+    ) -> FileResponse:
+        active_store: ContractStorageService = fastapi_app.state.storage
+        pdf_path = active_store.get_template_pdf_path(template_id)
+        if not pdf_path or not pdf_path.exists():
+            raise HTTPException(status_code=404, detail=f"Template PDF for {template_id} not found")
+        return FileResponse(
+            pdf_path,
+            media_type="application/pdf",
+            filename=pdf_path.name,
+            headers={"Content-Disposition": f'inline; filename="{pdf_path.name}"'},
+        )
+
+    @fastapi_app.post("/api/v1/templates/seed")
+    async def seed_templates_endpoint(
+        current_user: UserContext = Depends(auth_dep),
+    ) -> dict[str, object]:
+        require_admin(current_user)
+        active_store: ContractStorageService = fastapi_app.state.storage
+        seeded = active_store.seed_sample_templates(parser=None)
+        return {
+            "status": "ok",
+            "seeded": [s.model_dump(mode="json") for s in seeded],
+            "seeded_count": len(seeded),
+            "count": len(seeded),
+        }
+
+    @fastapi_app.get("/api/v1/contracts/{document_id}/variance/templates")
+    async def get_contract_variance_templates(
+        document_id: str,
+        current_user: UserContext = Depends(auth_dep),
+    ) -> list[dict[str, object]]:
+        """Rank active templates by affinity to the executed contract."""
+        active_store: ContractStorageService = fastapi_app.state.storage
+        doc_bundle = active_store.get_document_bundle(document_id)
+        if not doc_bundle:
+            raise HTTPException(status_code=404, detail=f"Contract document {document_id} not found")
+
+        doc_dict = doc_bundle.document.model_dump(mode="json")
+        templates = active_store.list_templates()
+        if not templates:
+            # Try auto-seeding if empty
+            templates = active_store.seed_sample_templates(parser=None)
+
+        candidates = rank_candidate_templates(doc_dict, templates)
+        return [c.model_dump(mode="json") for c in candidates]
+
+    @fastapi_app.post("/api/v1/contracts/{document_id}/compare")
+    async def compare_contract_variance_endpoint(
+        document_id: str,
+        template_id: str | None = None,
+        current_user: UserContext = Depends(auth_dep),
+    ) -> dict[str, object]:
+        """Run variance comparison against auto-suggested or specified baseline template."""
+        if current_user.role not in (UserRole.ADMIN, "analyst"):
+            raise HTTPException(status_code=403, detail="Only ADMIN or ANALYST users can execute variance comparison")
+
+        active_store: ContractStorageService = fastapi_app.state.storage
+        doc_bundle = active_store.get_document_bundle(document_id)
+        if not doc_bundle:
+            raise HTTPException(status_code=404, detail=f"Contract document {document_id} not found")
+
+        doc_dict = doc_bundle.document.model_dump(mode="json")
+        templates = active_store.list_templates()
+        if not templates:
+            templates = active_store.seed_sample_templates(parser=None)
+
+        target_template_id = template_id
+        binding_mode = "MANUAL_OVERRIDE" if template_id else "AUTO_SUGGESTED"
+
+        if not target_template_id:
+            candidates = rank_candidate_templates(doc_dict, templates)
+            if not candidates:
+                raise HTTPException(status_code=400, detail="No master templates available for comparison")
+            target_template_id = candidates[0].template_id
+
+        tpl_bundle = active_store.get_template_bundle(target_template_id)
+        if not tpl_bundle:
+            raise HTTPException(status_code=404, detail=f"Master template {target_template_id} not found")
+
+        # Convert clauses to dicts
+        ctr_clauses = [c.model_dump(mode="json") for c in doc_bundle.clauses]
+        tpl_clauses = [tc.model_dump(mode="json") for tc in tpl_bundle.clauses]
+
+        affinity_score = calculate_template_affinity(doc_dict, tpl_bundle.metadata)
+
+        bundle = run_contract_variance_comparison(
+            contract_doc=doc_dict,
+            contract_clauses=ctr_clauses,
+            template_row=tpl_bundle.metadata,
+            template_clauses=tpl_clauses,
+            binding_mode=binding_mode,
+            affinity_score=affinity_score,
+        )
+
+        active_store.save_contract_variance(bundle)
+
+        return {
+            "variance_id": bundle.variance.variance_id,
+            "document_id": bundle.variance.document_id,
+            "template_id": bundle.variance.template_id,
+            "binding_mode": bundle.variance.binding_mode,
+            "affinity_score": bundle.variance.affinity_score,
+            "variance": bundle.variance.model_dump(mode="json"),
+            "summary": bundle.summary.model_dump(mode="json"),
+            "details": [d.model_dump(mode="json") for d in bundle.details],
+            "created_at": bundle.variance.created_at,
+        }
+
+    @fastapi_app.get("/api/v1/contracts/{document_id}/variance")
+    async def get_contract_variance_endpoint(
+        document_id: str,
+        current_user: UserContext = Depends(auth_dep),
+    ) -> dict[str, object]:
+        """Fetch latest variance scorecard and redline details for a contract."""
+        active_store: ContractStorageService = fastapi_app.state.storage
+        result = active_store.get_latest_contract_variance(document_id)
+        if not result:
+            raise HTTPException(status_code=404, detail=f"No variance comparison found for document {document_id}")
+        if hasattr(result, "model_dump"):
+            return result.model_dump(mode="json")
+        return result
+
     return fastapi_app
+
 
 
 app = create_app()

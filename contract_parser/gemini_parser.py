@@ -13,9 +13,17 @@ from typing import Protocol
 from google import genai
 from google.genai import types
 
-from opentelemetry import trace
+import hashlib
+import io
+import os
 
-from contract_parser.bundle_assembler import assemble_multi_pass_extraction
+from opentelemetry import trace
+from opentelemetry.trace import StatusCode
+
+from contract_parser.bundle_assembler import (
+    assemble_multi_pass_extraction,
+    assemble_template_bundle,
+)
 from contract_parser.config import PipelineConfig
 from contract_parser.telemetry import TracedThreadPoolExecutor, get_tracer
 from contract_parser.prompts import (
@@ -23,6 +31,8 @@ from contract_parser.prompts import (
     DISCOVERY_SYSTEM_PROMPT,
     EXHIBITS_PASS_SYSTEM_PROMPT,
     SINGLE_PASS_SYSTEM_PROMPT,
+    TEMPLATE_STRUCTURE_DISCOVERY_PROMPT,
+    TEMPLATE_SUBSTANTIVE_CLAUSE_PROMPT,
     build_body_pass_directive,
     build_discovery_directive,
     build_exhibits_pass_directive,
@@ -35,14 +45,26 @@ from contract_parser.schemas import (
     DefinedTermRow,
     DefinitionType,
     DocumentZone,
+    EnergyTechnology,
     ExhibitCatalogRow,
     ExhibitModality,
     ExhibitsPassExtraction,
     FlagCode,
+    FormType,
     GeminiContractExtraction,
     HITLStatus,
     NumberingScheme,
+    PageSpan,
+    PlaceholderVariable,
+    RawTemplateClause,
     SpecialConditionRow,
+    TemplateArticleSpan,
+    TemplateClauseRow,
+    TemplateExhibitSpan,
+    TemplateExtractionBundle,
+    TemplatePassExtraction,
+    TemplateRegistryRow,
+    TemplateStructureIndex,
     sort_clauses_in_document_order,
     utc_now_iso,
 )
@@ -115,6 +137,26 @@ class ContractExtractorProtocol(Protocol):
         landowner_id: str | None = None,
     ) -> GeminiContractExtraction:
         """Extract structured contract hierarchy, terms, and exhibits from a PDF."""
+
+    def extract_template(
+        self,
+        *,
+        template_id: str,
+        template_name: str,
+        country: str,
+        state_province: str,
+        energy_technology: EnergyTechnology,
+        form_type: FormType,
+        vintage_year: str,
+        revision: str,
+        gcs_pdf_uri: str,
+        pdf_bytes: bytes | None = None,
+        created_by: str = "system",
+        filename: str | None = None,
+        **kwargs: Any,
+    ) -> TemplateExtractionBundle:
+        """Extract canonical boilerplate AST from a regional master template PDF."""
+
 
 
 class GeminiContractParser:
@@ -601,6 +643,226 @@ class GeminiContractParser:
                 project_id=project_id,
                 landowner_id=landowner_id,
             )
+
+    def _discover_template_structure(
+        self, pdf_part: types.Part, total_pages: int | None = None
+    ) -> TemplateStructureIndex:
+        """Pass 1: Discover template articles, quarantine span, and exhibits."""
+        with tracer.start_as_current_span("pass_1_template_structure_discovery") as span:
+            span.set_attribute("pass.name", "template_structure_discovery")
+            models_to_try = [self.config.gemini_model]
+            if (
+                self.config.gemini_fallback_model
+                and self.config.gemini_fallback_model not in models_to_try
+            ):
+                models_to_try.append(self.config.gemini_fallback_model)
+
+            last_err: Exception | None = None
+            for model_name in models_to_try:
+                backoff = self.config.retry_backoff_initial
+                for attempt in range(1, self.config.max_retries + 1):
+                    try:
+                        response = self.client.models.generate_content(
+                            model=model_name,
+                            contents=[
+                                pdf_part,
+                                f"Analyze this regional master renewable energy agreement template ({total_pages or 'unknown'} pages total). "
+                                "Identify all article spans, mid-document signature/notary execution quarantine span, and attached exhibits spans.",
+                            ],
+                            config=types.GenerateContentConfig(
+                                system_instruction=TEMPLATE_STRUCTURE_DISCOVERY_PROMPT,
+                                response_mime_type="application/json",
+                                response_schema=TemplateStructureIndex,
+                                temperature=0.0,
+                            ),
+                        )
+                        record_llm_response_telemetry(span, response, model_name)
+                        if response.parsed is not None and isinstance(
+                            response.parsed, TemplateStructureIndex
+                        ):
+                            return response.parsed
+                        if response.text:
+                            return TemplateStructureIndex.model_validate_json(response.text)
+                        raise RuntimeError("Template structure discovery returned empty response.")
+                    except Exception as exc:
+                        last_err = exc
+                        err_msg = str(exc).lower()
+                        if any(k in err_msg for k in ("api_key", "unauthorized", "credential", "401", "403", "not configured", "function calling")):
+                            logger.info("Non-retryable client/auth error during template discovery (%s). Breaking loop.", exc)
+                            break
+                        if attempt < self.config.max_retries:
+                            time.sleep(backoff)
+                            backoff *= 2.0
+
+            if last_err is not None:
+                span.record_exception(last_err)
+                span.set_status(StatusCode.ERROR, f"Pass 1 template discovery failed: {last_err}")
+
+            logger.warning(
+                "Pass 1 template discovery failed across models (%s). Using fallback heuristic index.",
+                last_err,
+            )
+            end_pg = total_pages or 1
+            return TemplateStructureIndex(
+                total_pages=end_pg,
+                articles_spans=[
+                    TemplateArticleSpan(
+                        article_number="ALL",
+                        article_title="Agreement Body",
+                        page_span=PageSpan(start_page=1, end_page=end_pg),
+                    )
+                ],
+                quarantine_signatures_span=PageSpan(start_page=0, end_page=0),
+                exhibits_spans=[],
+            )
+
+    def _extract_template_clauses(
+        self, pdf_part: types.Part, index: TemplateStructureIndex
+    ) -> TemplatePassExtraction:
+        """Pass 2: Extract substantive boilerplate clauses from template."""
+        with tracer.start_as_current_span("pass_2_template_clause_extraction") as span:
+            span.set_attribute("pass.name", "template_clause_extraction")
+            models_to_try = [self.config.gemini_model]
+            if (
+                self.config.gemini_fallback_model
+                and self.config.gemini_fallback_model not in models_to_try
+            ):
+                models_to_try.append(self.config.gemini_fallback_model)
+
+            q_start = 0
+            q_end = 0
+            if index and getattr(index, "quarantine_signatures_span", None):
+                q_span = index.quarantine_signatures_span
+                q_start = getattr(q_span, "start_page", getattr(q_span, "page_start", 0)) or 0
+                q_end = getattr(q_span, "end_page", getattr(q_span, "page_end", 0)) or 0
+
+            prompt_text = (
+                f"Extract all substantive boilerplate clauses from this template. "
+                f"Quarantine signature block between pages {q_start} and {q_end}. "
+                f"Do not truncate attached exhibits."
+            )
+
+            last_err: Exception | None = None
+            for model_name in models_to_try:
+                backoff = self.config.retry_backoff_initial
+                for attempt in range(1, self.config.max_retries + 1):
+                    try:
+                        response = self.client.models.generate_content(
+                            model=model_name,
+                            contents=[pdf_part, prompt_text],
+                            config=types.GenerateContentConfig(
+                                system_instruction=TEMPLATE_SUBSTANTIVE_CLAUSE_PROMPT,
+                                response_mime_type="application/json",
+                                response_schema=TemplatePassExtraction,
+                                temperature=0.0,
+                            ),
+                        )
+                        record_llm_response_telemetry(span, response, model_name)
+                        if response.parsed is not None and isinstance(
+                            response.parsed, TemplatePassExtraction
+                        ):
+                            return response.parsed
+                        if response.text:
+                            return TemplatePassExtraction.model_validate_json(response.text)
+                        raise RuntimeError("Template clause extraction returned empty response.")
+                    except Exception as exc:
+                        last_err = exc
+                        err_msg = str(exc).lower()
+                        if any(k in err_msg for k in ("api_key", "unauthorized", "credential", "401", "403", "not configured", "function calling")):
+                            logger.info("Non-retryable client/auth error during template extraction (%s). Breaking loop.", exc)
+                            break
+                        if attempt < self.config.max_retries:
+                            time.sleep(backoff)
+                            backoff *= 2.0
+
+            if last_err is not None:
+                span.record_exception(last_err)
+                span.set_status(StatusCode.ERROR, f"Pass 2 template clause extraction failed: {last_err}")
+
+            logger.warning(
+                "Pass 2 template clause extraction failed across models (%s). Returning empty clause container.",
+                last_err,
+            )
+            return TemplatePassExtraction(clauses=[])
+
+    def extract_template(
+        self,
+        *,
+        template_id: str,
+        template_name: str,
+        country: str,
+        state_province: str,
+        energy_technology: EnergyTechnology,
+        form_type: FormType,
+        vintage_year: str,
+        revision: str,
+        gcs_pdf_uri: str,
+        pdf_bytes: bytes | None = None,
+        created_by: str = "system",
+        filename: str | None = None,
+        **kwargs: Any,
+    ) -> TemplateExtractionBundle:
+        """Extract canonical boilerplate AST from a regional master template PDF."""
+        import pypdf
+
+        with tracer.start_as_current_span("extract_template") as span:
+            span.set_attribute("template.id", template_id)
+            span.set_attribute("template.country", country)
+            span.set_attribute("template.state", state_province)
+            span.set_attribute("template.technology", str(energy_technology))
+
+            if pdf_bytes is None:
+                if gcs_pdf_uri.startswith("/") and os.path.exists(gcs_pdf_uri):
+                    with open(gcs_pdf_uri, "rb") as f:
+                        pdf_bytes = f.read()
+                elif not gcs_pdf_uri.startswith("gs://"):
+                    raise ValueError("Either pdf_bytes or a valid local file path/gs:// URI must be provided.")
+
+            sha256_hash = hashlib.sha256(pdf_bytes).hexdigest() if pdf_bytes else "unknown"
+
+            page_count = 1
+            if pdf_bytes:
+                try:
+                    reader = pypdf.PdfReader(io.BytesIO(pdf_bytes))
+                    page_count = len(reader.pages)
+                except Exception as ex:
+                    logger.warning("Failed to count pages via pypdf: %s", ex)
+
+            pdf_part = self._build_pdf_part(gcs_pdf_uri, pdf_bytes)
+
+            struct_index = self._discover_template_structure(pdf_part, total_pages=page_count)
+            substantive_clauses = self._extract_template_clauses(pdf_part, struct_index)
+            if not substantive_clauses.clauses:
+                span.set_status(StatusCode.ERROR, "No substantive clauses extracted via LLM; falling back to offline extractor.")
+                raise RuntimeError("No substantive clauses extracted via LLM; falling back to offline extractor.")
+
+            now_iso = utc_now_iso()
+            registry_row = TemplateRegistryRow(
+                template_id=template_id,
+                template_name=template_name,
+                country=country.upper(),
+                state_province=state_province.upper(),
+                energy_technology=energy_technology,
+                form_type=form_type,
+                vintage_year=vintage_year,
+                revision=revision,
+                gcs_pdf_uri=gcs_pdf_uri,
+                sha256_hash=sha256_hash,
+                page_count=page_count,
+                clause_count=0,
+                is_active=True,
+                created_by=created_by,
+                created_at=now_iso,
+                updated_at=now_iso,
+            )
+
+            bundle = assemble_template_bundle(
+                template_row=registry_row,
+                raw_clauses=substantive_clauses.clauses,
+                quarantine_span=struct_index.quarantine_signatures_span,
+            )
+            return bundle
+
 
 
 def _split_pipe(val: str | None) -> list[str]:

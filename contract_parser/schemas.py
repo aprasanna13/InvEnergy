@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from enum import StrEnum
-from typing import Self
+from typing import Any, Self
 import re
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, computed_field, model_validator
 
 
 def utc_now_iso() -> str:
@@ -22,8 +22,10 @@ class DocumentZone(StrEnum):
     BODY = "BODY"
     SIGNATURES = "SIGNATURES"
     EXHIBIT_OR_SCHEDULE = "EXHIBIT_OR_SCHEDULE"
+    EXHIBITS = "EXHIBIT_OR_SCHEDULE"
     EXHIBIT_A = "EXHIBIT_OR_SCHEDULE"
     AMENDMENT = "AMENDMENT"
+
 
 
 class NumberingScheme(StrEnum):
@@ -39,6 +41,8 @@ class NumberingScheme(StrEnum):
     NAMED_HEADER = "NAMED_HEADER"
     BLOCK_HEADER = "NAMED_HEADER"
     UNNUMBERED = "UNNUMBERED"
+    OUTLINE = "ALPHA_UPPER"
+    OTHER = "NAMED_HEADER"
 
 
 class ExhibitModality(StrEnum):
@@ -66,6 +70,19 @@ class HITLStatus(StrEnum):
     FLAGGED_FOR_REVIEW = "FLAGGED_FOR_REVIEW"
     PLACEHOLDER_FOR_REVIEW = "PLACEHOLDER_FOR_REVIEW"
     APPROVED_BY_HUMAN = "APPROVED_BY_HUMAN"
+
+    @classmethod
+    def _missing_(cls, value: object) -> Any:
+        if isinstance(value, str):
+            val_upper = value.strip().upper()
+            for member in cls:
+                if member.value == val_upper or member.name == val_upper:
+                    return member
+            if val_upper in ("APPROVED", "APPROVED_BY_USER", "HUMAN_APPROVED"):
+                return cls.APPROVED_BY_HUMAN
+            if val_upper in ("VERIFIED", "AUTO_VERIFIED", "PROCESSED"):
+                return cls.VERIFIED_AUTO
+        return super()._missing_(value)
 
 
 class FlagCode(StrEnum):
@@ -109,10 +126,24 @@ class EnergyTechnology(StrEnum):
     """Five Invenergy renewable energy technology classifications (CR-2 / R3)."""
 
     ONSHORE_WIND = "ONSHORE_WIND"
+    WIND = "ONSHORE_WIND"
     SOLAR = "SOLAR"
     STORAGE = "STORAGE"
     TRANSMISSION = "TRANSMISSION"
     GEOTHERMAL = "GEOTHERMAL"
+
+    @classmethod
+    def _missing_(cls, value: object) -> Any:
+        if isinstance(value, str):
+            val_upper = value.strip().upper()
+            for member in cls:
+                if member.value == val_upper or member.name == val_upper:
+                    return member
+            if val_upper == "WIND":
+                return cls.ONSHORE_WIND
+            return cls.ONSHORE_WIND
+        return super()._missing_(value)
+
 
 
 class IngestionStatus(StrEnum):
@@ -122,6 +153,17 @@ class IngestionStatus(StrEnum):
     NEEDS_HITL_REVIEW = "NEEDS_HITL_REVIEW"
     VERIFIED_COMPLETE = "VERIFIED_COMPLETE"
     FAILED = "FAILED"
+
+    @classmethod
+    def _missing_(cls, value: object) -> Any:
+        if isinstance(value, str):
+            val_upper = value.strip().upper()
+            for member in cls:
+                if member.value == val_upper or member.name == val_upper:
+                    return member
+            if val_upper in ("PROCESSED", "COMPLETE", "VERIFIED", "SUCCESS"):
+                return cls.VERIFIED_COMPLETE
+        return super()._missing_(value)
 
 
 class ProjectRow(BaseModel):
@@ -374,6 +416,24 @@ class DocumentRegistryRow(BaseModel):
         default=None,
         description="Grantee / Developer SPV entity name extracted from the contract (CR-2)",
     )
+    state: str | None = Field(default=None, description="State jurisdiction (CR-11)")
+    country: str | None = Field(default="US", description="Country jurisdiction (CR-11)")
+    form_type: str | None = Field(default=None, description="Form type taxonomy (CR-11)")
+    file_sha256: str | None = Field(default=None, description="SHA256 file hash (CR-11)")
+
+    @model_validator(mode="before")
+    @classmethod
+    def _coerce_fields(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            if data.get("contracting_parties_json") is None:
+                data["contracting_parties_json"] = "[]"
+            if not data.get("gcs_pdf_uri"):
+                data["gcs_pdf_uri"] = f"gs://invenergy-contracts/raw/{data.get('document_id', 'unknown')}.pdf"
+            if not data.get("gcs_export_prefix"):
+                data["gcs_export_prefix"] = f"gs://invenergy-contracts/exports/{data.get('document_id', 'unknown')}/"
+            if str(data.get("ingestion_status", "")).upper() in ("PROCESSED", "COMPLETE"):
+                data["ingestion_status"] = IngestionStatus.VERIFIED_COMPLETE
+        return data
 
 
 class CreateProjectRequest(BaseModel):
@@ -1225,3 +1285,757 @@ def parse_data_agent_events(
         followup_questions=followup_questions,
         document_links=document_links,
     )
+
+
+# =============================================================================
+# CR-9: Regional Template Studio & Canonical AST Registry Models
+# =============================================================================
+
+class FormType(StrEnum):
+    """Legal instrument or form classification."""
+
+    WIND_EASEMENT = "WIND_EASEMENT"
+    SOLAR_LEASE = "SOLAR_LEASE"
+    SOLAR_EASEMENT = "SOLAR_EASEMENT"
+    STORAGE_EASEMENT = "STORAGE_EASEMENT"
+    LAND_OPTION_PURCHASE = "LAND_OPTION_PURCHASE"
+    PARTICIPATION_EASEMENT = "PARTICIPATION_EASEMENT"
+    LEASE = "LEASE"
+    OPTION = "OPTION"
+    EASEMENT = "EASEMENT"
+    OTHER = "OTHER"
+
+    @classmethod
+    def _missing_(cls, value: object) -> Any:
+        if isinstance(value, str):
+            val_upper = value.strip().upper()
+            for member in cls:
+                if member.value == val_upper or member.name == val_upper:
+                    return member
+            if "WIND" in val_upper and "EASEMENT" in val_upper:
+                return cls.WIND_EASEMENT
+            if "SOLAR" in val_upper and "LEASE" in val_upper:
+                return cls.SOLAR_LEASE
+            if "SOLAR" in val_upper and "EASEMENT" in val_upper:
+                return cls.SOLAR_EASEMENT
+            if "STORAGE" in val_upper:
+                return cls.STORAGE_EASEMENT
+            if "OPTION" in val_upper:
+                return cls.OPTION
+            if "PARTICIPATION" in val_upper:
+                return cls.PARTICIPATION_EASEMENT
+            if "LEASE" in val_upper:
+                return cls.LEASE
+            if "EASEMENT" in val_upper:
+                return cls.EASEMENT
+            return cls.OTHER
+        return super()._missing_(value)
+
+
+class PageSpan(BaseModel):
+    """Physical 1-based page boundary span."""
+
+    page_start: int = Field(default=1, ge=1, description="1-based starting physical page number")
+    page_end: int = Field(default=1, ge=1, description="1-based ending physical page number")
+
+    @property
+    def start_page(self) -> int:
+        return self.page_start
+
+    @property
+    def end_page(self) -> int:
+        return self.page_end
+
+    @model_validator(mode="before")
+    @classmethod
+    def _remap_span(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            if "start_page" in data and "page_start" not in data:
+                data["page_start"] = data["start_page"]
+            if "end_page" in data and "page_end" not in data:
+                data["page_end"] = data["end_page"]
+        return data
+
+
+class TemplateArticleSpan(BaseModel):
+    """Section/Article discovered in Pass 1."""
+
+    article_number: str = Field(description="Article/Section numbering (e.g. '1', 'Article II')")
+    article_title: str = Field(description="Article/Section title (e.g. 'Easement', 'Taxes')")
+    page_start: int = Field(default=1, ge=1)
+    page_end: int = Field(default=1, ge=1)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _remap_article(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            if "page_span" in data:
+                span = data["page_span"]
+                if isinstance(span, dict):
+                    data["page_start"] = span.get("page_start", span.get("start_page", 1))
+                    data["page_end"] = span.get("page_end", span.get("end_page", 1))
+                elif hasattr(span, "page_start"):
+                    data["page_start"] = span.page_start
+                    data["page_end"] = span.page_end
+            if "start_page" in data and "page_start" not in data:
+                data["page_start"] = data["start_page"]
+            if "end_page" in data and "page_end" not in data:
+                data["page_end"] = data["end_page"]
+        return data
+
+
+class TemplateExhibitSpan(BaseModel):
+    """Exhibit or schedule attached to template discovered in Pass 1."""
+
+    exhibit_id: str = Field(description="Identifier (e.g. 'Exhibit A', 'Schedule 1')")
+    exhibit_title: str = Field(description="Title (e.g. 'Legal Description', 'Decommissioning Plan')")
+    page_start: int = Field(default=1, ge=1)
+    page_end: int = Field(default=1, ge=1)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _remap_exhibit(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            if "page_span" in data:
+                span = data["page_span"]
+                if isinstance(span, dict):
+                    data["page_start"] = span.get("page_start", span.get("start_page", 1))
+                    data["page_end"] = span.get("page_end", span.get("end_page", 1))
+                elif hasattr(span, "page_start"):
+                    data["page_start"] = span.page_start
+                    data["page_end"] = span.page_end
+            if "start_page" in data and "page_start" not in data:
+                data["page_start"] = data["start_page"]
+            if "end_page" in data and "page_end" not in data:
+                data["page_end"] = data["end_page"]
+        return data
+
+
+class TemplateStructureIndex(BaseModel):
+    """Pass 1: Structured output model for template boundary discovery."""
+
+    document_title: str = Field(default="Master Template", description="Verbatim agreement title from header")
+    country: str = Field(default="US")
+    state_province: str = Field(default="US", description="Governing state/province or 'US' if general")
+    energy_technology: EnergyTechnology = Field(
+        default=EnergyTechnology.SOLAR,
+        description="Primary technology (SOLAR, ONSHORE_WIND, STORAGE, THERMAL, CROSS_TECHNOLOGY)",
+    )
+    form_type: FormType = Field(default=FormType.OTHER, description="Classified form type")
+    vintage_year: str = Field(default="2024", description="Vintage year detected or '2024'")
+    preamble_span: PageSpan | None = None
+    recitals_span: PageSpan | None = None
+    body_articles: list[TemplateArticleSpan] = Field(default_factory=list)
+    quarantine_signatures_span: PageSpan | None = Field(
+        default=None,
+        description="Physical page span containing execution block, signature tables, and notary certificates to suppress from AST nodes",
+    )
+    exhibits: list[TemplateExhibitSpan] = Field(default_factory=list)
+
+    @property
+    def form_name(self) -> str:
+        return self.document_title
+
+    @property
+    def state(self) -> str:
+        return self.state_province
+
+    @property
+    def technology(self) -> EnergyTechnology:
+        return self.energy_technology
+
+    @property
+    def effective_vintage_year(self) -> int:
+        try:
+            return int(self.vintage_year)
+        except ValueError:
+            return 2024
+
+    @property
+    def articles(self) -> list[TemplateArticleSpan]:
+        return self.body_articles
+
+    @model_validator(mode="before")
+    @classmethod
+    def _remap_struct(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            if "form_name" in data and "document_title" not in data:
+                data["document_title"] = data["form_name"]
+            if "state" in data and "state_province" not in data:
+                data["state_province"] = data["state"]
+            if "technology" in data and "energy_technology" not in data:
+                data["energy_technology"] = data["technology"]
+            if "effective_vintage_year" in data and "vintage_year" not in data:
+                data["vintage_year"] = str(data["effective_vintage_year"])
+            if "articles" in data and "body_articles" not in data:
+                data["body_articles"] = data["articles"]
+            if "signature_block_pages" in data and "quarantine_signatures_span" not in data:
+                sig_pages = data["signature_block_pages"]
+                if sig_pages:
+                    data["quarantine_signatures_span"] = PageSpan(
+                        page_start=min(sig_pages), page_end=max(sig_pages)
+                    )
+        return data
+
+
+class PlaceholderVariable(BaseModel):
+    """Extracted variable bracket from a template clause."""
+
+    variable_name: str = Field(description="Name or description of placeholder, e.g., 'Payment Rate', 'County'")
+    bracket_text: str = Field(description="Verbatim bracket token, e.g. '$[_____] per megawatt', '[County]'")
+    data_type_hint: str = Field(default="STRING", description="Inferred type: CURRENCY, DURATION, DATE, STRING, NUMBER, JURISDICTION, AREA, CAPACITY, TEXT")
+
+    @property
+    def token_name(self) -> str:
+        return self.variable_name
+
+    @property
+    def inferred_type(self) -> str:
+        return self.data_type_hint
+
+    @model_validator(mode="before")
+    @classmethod
+    def _remap_pv(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            if "token_name" in data and "variable_name" not in data:
+                data["variable_name"] = data["token_name"]
+            if "inferred_type" in data and "data_type_hint" not in data:
+                data["data_type_hint"] = data["inferred_type"]
+            if "bracket_text" not in data:
+                data["bracket_text"] = f"[{data.get('variable_name', '')}]"
+        return data
+
+
+class RawTemplateClause(BaseModel):
+    """Pass 2: Substantive extracted clause item returned by Gemini."""
+
+    clause_label: str = Field(default="1.1", description="Label, e.g. '1.', '1.1', 'Section 2.3', 'Recital A'")
+    clause_title: str | None = Field(default=None, description="Title/heading if present")
+    numbering_scheme: NumberingScheme = Field(default=NumberingScheme.DECIMAL)
+    document_zone: DocumentZone = Field(default=DocumentZone.BODY)
+    verbatim_text: str = Field(default="", description="100% verbatim clause text with fill-in brackets intact")
+    placeholder_variables: list[PlaceholderVariable] = Field(default_factory=list)
+    page_start: int = Field(default=1, ge=1)
+    page_end: int = Field(default=1, ge=1)
+    is_substantive: bool = Field(default=True)
+    canonical_path: str | None = None
+    article_number: str | None = None
+    section_number: str | None = None
+
+    @property
+    def start_page(self) -> int:
+        return self.page_start
+
+    @property
+    def end_page(self) -> int:
+        return self.page_end
+
+    @property
+    def section_text(self) -> str:
+        return self.verbatim_text
+
+    @property
+    def placeholders(self) -> list[PlaceholderVariable]:
+        return self.placeholder_variables
+
+    @model_validator(mode="before")
+    @classmethod
+    def _remap_raw(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            if "section_text" in data and "verbatim_text" not in data:
+                data["verbatim_text"] = data["section_text"]
+            if "start_page" in data and "page_start" not in data:
+                data["page_start"] = data["start_page"]
+            if "end_page" in data and "page_end" not in data:
+                data["page_end"] = data["end_page"]
+            if "placeholders" in data and "placeholder_variables" not in data:
+                data["placeholder_variables"] = data["placeholders"]
+            if "clause_label" not in data:
+                sec = data.get("section_number") or ""
+                art = data.get("article_number") or ""
+                data["clause_label"] = sec or art or "1.1"
+        return data
+
+
+class TemplatePassExtraction(BaseModel):
+    """Pass 2: Structured container of substantive boilerplate clauses."""
+
+    clauses: list[RawTemplateClause] = Field(default_factory=list)
+
+
+class TemplateRegistryRow(BaseModel):
+    """Canonical metadata row for an approved regional master template."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    template_id: str
+    template_name: str
+    country: str = "US"
+    state_province: str
+    energy_technology: EnergyTechnology | str
+    form_type: FormType | str
+    vintage_year: str
+    revision: str = "v1"
+    gcs_pdf_uri: str = ""
+    sha256_hash: str = ""
+    page_count: int = 1
+    clause_count: int = 0
+    is_active: bool = True
+    has_exhibits: bool = False
+    is_standard: bool = True
+    created_by: str = "system"
+    created_at: str = Field(default_factory=utc_now_iso)
+    updated_at: str = Field(default_factory=utc_now_iso)
+
+    @computed_field
+    @property
+    def form_name(self) -> str:
+        return self.template_name
+
+    @form_name.setter
+    def form_name(self, val: str) -> None:
+        self.template_name = val
+
+    @computed_field
+    @property
+    def state(self) -> str:
+        return self.state_province
+
+    @computed_field
+    @property
+    def technology(self) -> Any:
+        val = self.energy_technology.value if hasattr(self.energy_technology, "value") else str(self.energy_technology)
+        if val in ("ONSHORE_WIND", "WIND"):
+            return "WIND"
+        return val
+
+    @computed_field
+    @property
+    def total_pages(self) -> int:
+        return self.page_count
+
+    @model_validator(mode="before")
+    @classmethod
+    def _remap_reg(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            if "form_name" in data and "template_name" not in data:
+                data["template_name"] = data["form_name"]
+            if "state" in data and "state_province" not in data:
+                data["state_province"] = data["state"]
+            if "technology" in data and "energy_technology" not in data:
+                data["energy_technology"] = data["technology"]
+            if "vintage_year" in data:
+                data["vintage_year"] = str(data["vintage_year"])
+            elif "effective_vintage_year" in data:
+                data["vintage_year"] = str(data["effective_vintage_year"])
+            if "total_pages" in data and "page_count" not in data:
+                data["page_count"] = data["total_pages"]
+            if "pdf_sha256" in data and "sha256_hash" not in data:
+                data["sha256_hash"] = data["pdf_sha256"]
+            if "gcs_pdf_uri" not in data:
+                data["gcs_pdf_uri"] = data.get("storage_path", "")
+            if "created_by" not in data:
+                data["created_by"] = "system"
+        return data
+
+    def __getitem__(self, item: str) -> Any:
+        try:
+            return getattr(self, item)
+        except AttributeError:
+            raise KeyError(item)
+
+
+class TemplateClauseRow(BaseModel):
+    """Individual canonical AST clause node belonging to a master template."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    template_id: str
+    node_id: str
+    parent_node_id: str | None = None
+    sibling_order: int = 1
+    document_zone: DocumentZone = DocumentZone.BODY
+    canonical_path: str
+    depth: int = 1
+    clause_label: str = "1.1"
+    clause_title: str | None = None
+    numbering_scheme: NumberingScheme = NumberingScheme.DECIMAL
+    verbatim_text: str = ""
+    placeholder_variables: list[PlaceholderVariable] = Field(default_factory=list)
+    page_start: int = 1
+    page_end: int = 1
+    created_at: str = Field(default_factory=utc_now_iso)
+
+    @computed_field
+    @property
+    def clause_id(self) -> str:
+        return self.node_id
+
+    @computed_field
+    @property
+    def section_number(self) -> str:
+        return self.clause_label
+
+    @computed_field
+    @property
+    def placeholders(self) -> list[PlaceholderVariable]:
+        return self.placeholder_variables
+
+    @computed_field
+    @property
+    def section_text(self) -> str:
+        return self.verbatim_text
+
+    @model_validator(mode="before")
+    @classmethod
+    def _remap_clause(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            if "placeholders" in data and "placeholder_variables" not in data:
+                data["placeholder_variables"] = data["placeholders"]
+            if "section_text" in data and "verbatim_text" not in data:
+                data["verbatim_text"] = data["section_text"]
+            if "clause_id" in data and "node_id" not in data:
+                data["node_id"] = data["clause_id"]
+            if "start_page" in data and "page_start" not in data:
+                data["page_start"] = data["start_page"]
+            if "end_page" in data and "page_end" not in data:
+                data["page_end"] = data["end_page"]
+            if "section_number" in data and "clause_label" not in data:
+                data["clause_label"] = data["section_number"]
+        return data
+
+    def __getitem__(self, item: str) -> Any:
+        try:
+            return getattr(self, item)
+        except AttributeError:
+            raise KeyError(item)
+
+
+class TemplateExtractionBundle(BaseModel):
+    """Structured package returned by the two-pass template extraction engine."""
+
+    metadata: TemplateRegistryRow
+    clauses: list[TemplateClauseRow]
+
+    @computed_field
+    @property
+    def registry_row(self) -> TemplateRegistryRow:
+        return self.metadata
+
+    @registry_row.setter
+    def registry_row(self, val: TemplateRegistryRow) -> None:
+        self.metadata = val
+
+    @computed_field
+    @property
+    def template_id(self) -> str:
+        return self.metadata.template_id
+
+    @computed_field
+    @property
+    def form_name(self) -> str:
+        return self.metadata.template_name
+
+    @model_validator(mode="before")
+    @classmethod
+    def _remap_bundle(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            if "registry_row" in data and "metadata" not in data:
+                data["metadata"] = data["registry_row"]
+        return data
+
+    def __getitem__(self, item: str) -> Any:
+        if hasattr(self, item):
+            return getattr(self, item)
+        if hasattr(self.metadata, item):
+            return getattr(self.metadata, item)
+        raise KeyError(item)
+
+
+TEMPLATE_REGISTRY_COLUMNS: list[str] = [
+    "template_id",
+    "template_name",
+    "country",
+    "state_province",
+    "energy_technology",
+    "form_type",
+    "vintage_year",
+    "revision",
+    "gcs_pdf_uri",
+    "sha256_hash",
+    "page_count",
+    "clause_count",
+    "is_active",
+    "created_by",
+    "created_at",
+    "updated_at",
+]
+
+TEMPLATE_CLAUSES_COLUMNS: list[str] = [
+    "template_id",
+    "node_id",
+    "parent_node_id",
+    "sibling_order",
+    "document_zone",
+    "canonical_path",
+    "depth",
+    "clause_label",
+    "clause_title",
+    "numbering_scheme",
+    "verbatim_text",
+    "placeholder_variables",
+    "page_start",
+    "page_end",
+    "created_at",
+]
+
+
+class VarianceType(StrEnum):
+    """Classification of deviation between contract clause and baseline template."""
+
+    IDENTICAL = "IDENTICAL"
+    PARAMETER_ONLY = "PARAMETER_ONLY"
+    MODIFIED = "MODIFIED"
+    ADDED = "ADDED"
+    DELETED = "DELETED"
+
+
+class VarianceRiskLevel(StrEnum):
+    """Legal exposure risk tier for contract deviations."""
+
+    NONE = "NONE"
+    LOW = "LOW"
+    MEDIUM = "MEDIUM"
+    HIGH = "HIGH"
+
+
+class VarianceSummary(BaseModel):
+    """Aggregated scorecard for a contract variance run."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    total_template_clauses: int = 0
+    total_contract_clauses: int = 0
+    total_clauses_analyzed: int = 0
+    identical_count: int = 0
+    parameter_only_count: int = 0
+    modified_count: int = 0
+    added_count: int = 0
+    deleted_count: int = 0
+    overall_risk_score: float = 0.0
+    high_risk_count: int = 0
+    medium_risk_count: int = 0
+    low_risk_count: int = 0
+    none_risk_count: int = 0
+
+
+class ContractVarianceRow(BaseModel):
+    """Parent run metadata for a contract variance comparison."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    variance_id: str
+    document_id: str
+    template_id: str
+    template_name: str | None = None
+    template_version: str | None = None
+    binding_mode: str = "AUTO_SUGGESTED"  # "AUTO_SUGGESTED" | "MANUAL_OVERRIDE"
+    affinity_score: float = 0.0
+    total_template_clauses: int = 0
+    total_contract_clauses: int = 0
+    identical_count: int = 0
+    parameter_only_count: int = 0
+    modified_count: int = 0
+    added_count: int = 0
+    deleted_count: int = 0
+    overall_risk_score: float = 0.0
+    high_risk_count: int = 0
+    medium_risk_count: int = 0
+    low_risk_count: int = 0
+    summary: VarianceSummary | None = None
+    created_at: str = Field(default_factory=utc_now_iso)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _normalize_variance_row(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            if "overall_deviation_index" in data and ("overall_risk_score" not in data or data["overall_risk_score"] == 0.0):
+                data["overall_risk_score"] = float(data["overall_deviation_index"])
+        return data
+
+    @property
+    def overall_deviation_index(self) -> float:
+        return self.overall_risk_score
+
+    def __getitem__(self, item: str):
+        return getattr(self, item)
+
+
+class ClauseVarianceDetailRow(BaseModel):
+    """Clause-level variance comparison delta and redline markup."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    detail_id: str
+    variance_id: str
+    document_id: str
+    canonical_path: str
+    template_clause_id: str | None = None
+    template_node_id: str | None = None
+    contract_clause_id: str | None = None
+    contract_node_id: str | None = None
+    clause_label: str = ""
+    clause_title: str | None = None
+    variance_type: VarianceType | str
+    similarity_score: float = 1.0
+    risk_level: VarianceRiskLevel | str
+    risk_score: float = 0.0
+    risk_category: str | None = None
+    risk_categories: str | None = None
+    risk_rationale: str | None = None
+    parameter_substitutions: dict[str, str] | None = None
+    template_text: str | None = None
+    template_baseline_text: str | None = None
+    contract_text: str | None = None
+    contract_executed_text: str | None = None
+    redline_html: str | None = None
+    page_start: int | None = None
+    created_at: str = Field(default_factory=utc_now_iso)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _normalize_fields(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            c_id = data.get("contract_clause_id") or data.get("contract_node_id")
+            data["contract_clause_id"] = c_id
+            data["contract_node_id"] = c_id
+
+            t_id = data.get("template_clause_id") or data.get("template_node_id")
+            data["template_clause_id"] = t_id
+            data["template_node_id"] = t_id
+
+            t_txt = data.get("template_text") if data.get("template_text") is not None else data.get("template_baseline_text")
+            data["template_text"] = t_txt
+            data["template_baseline_text"] = t_txt
+
+            c_txt = data.get("contract_text") if data.get("contract_text") is not None else data.get("contract_executed_text")
+            data["contract_text"] = c_txt
+            data["contract_executed_text"] = c_txt
+
+            rc = data.get("risk_category") or data.get("risk_categories")
+            data["risk_category"] = rc
+            data["risk_categories"] = rc
+
+            if not data.get("clause_label"):
+                data["clause_label"] = data.get("canonical_path", "Section")
+
+            if "similarity_score" not in data:
+                data["similarity_score"] = 1.0
+        return data
+
+    def __getitem__(self, item: str):
+        return getattr(self, item)
+
+
+class VarianceCandidateTemplate(BaseModel):
+    """Ranked baseline template suggestion with affinity score."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    template_id: str
+    template_name: str
+    affinity_score: float
+    is_exact_state_match: bool
+    is_exact_tech_match: bool
+    energy_technology: str = ""
+    region: str = ""
+    state_province: str = ""
+    form_type: str = ""
+    vintage_year: str = ""
+
+    def __getitem__(self, item: str):
+        return getattr(self, item)
+
+
+class ContractVarianceBundle(BaseModel):
+    """Complete bundle containing parent summary and child variance details."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    variance: ContractVarianceRow
+    summary: VarianceSummary | None = None
+    details: list[ClauseVarianceDetailRow] = Field(default_factory=list)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _coerce_summary(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            if "summary" not in data or data.get("summary") is None:
+                v = data.get("variance")
+                if isinstance(v, dict):
+                    data["summary"] = v.get("summary") or VarianceSummary()
+                elif hasattr(v, "summary"):
+                    data["summary"] = getattr(v, "summary", None) or VarianceSummary()
+                else:
+                    data["summary"] = VarianceSummary()
+        return data
+
+    def __iter__(self):
+        return iter((self.details, self.summary, self.variance.overall_risk_score))
+
+    def __getitem__(self, item: str):
+        if item == "variance":
+            return self.variance
+        elif item == "summary":
+            return self.summary
+        elif item == "details":
+            return self.details
+        raise KeyError(item)
+
+
+CONTRACT_VARIANCES_COLUMNS: list[str] = [
+    "variance_id",
+    "document_id",
+    "template_id",
+    "binding_mode",
+    "affinity_score",
+    "total_template_clauses",
+    "total_contract_clauses",
+    "identical_count",
+    "parameter_only_count",
+    "modified_count",
+    "added_count",
+    "deleted_count",
+    "overall_risk_score",
+    "high_risk_count",
+    "medium_risk_count",
+    "low_risk_count",
+    "created_at",
+]
+
+CLAUSE_VARIANCE_DETAILS_COLUMNS: list[str] = [
+    "detail_id",
+    "variance_id",
+    "document_id",
+    "canonical_path",
+    "template_clause_id",
+    "contract_clause_id",
+    "clause_label",
+    "clause_title",
+    "variance_type",
+    "risk_level",
+    "risk_score",
+    "risk_category",
+    "risk_rationale",
+    "parameter_substitutions",
+    "template_text",
+    "contract_text",
+    "redline_html",
+    "page_start",
+    "created_at",
+]
+
+
+
+
+

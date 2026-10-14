@@ -20,7 +20,13 @@ from contract_parser.schemas import (
     GeminiContractExtraction,
     HITLStatus,
     NumberingScheme,
+    PageSpan,
+    PlaceholderVariable,
+    RawTemplateClause,
     SpecialConditionRow,
+    TemplateClauseRow,
+    TemplateExtractionBundle,
+    TemplateRegistryRow,
     utc_now_iso,
 )
 
@@ -33,6 +39,9 @@ logger = logging.getLogger(__name__)
 def clean_exhibit_token(exhibit_id: str) -> str:
     """Normalize exhibit identifier into a clean node suffix (e.g. 'Exhibit A' -> 'A', 'Exhibit A-1' -> 'A_1')."""
     token = exhibit_id.strip()
+    m = re.search(r"(?i)\b(?:exhibit|schedule|appendix)\s+([A-Z0-9]+(?:[-_][A-Z0-9]+)*)\b", token)
+    if m:
+        return m.group(1).replace("-", "_").upper()
     token = re.sub(r"(?i)^exhibit[\s_]*", "", token)
     token = re.sub(r"(?i)^schedule[\s_]*", "", token)
     token = re.sub(r"(?i)^appendix[\s_]*", "", token)
@@ -320,3 +329,297 @@ def assemble_multi_pass_extraction(
         exhibits_catalog=list(catalog_by_id.values()),
         special_conditions=combined_conditions,
     )
+
+
+# ---------------------------------------------------------------------------
+# CR-9: Template Canonical AST Bundle Assembler & Placeholder Tokenizer
+# ---------------------------------------------------------------------------
+
+PLACEHOLDER_REGEX = re.compile(
+    r"(?P<currency>\$)?\[(?P<inner>_{2,}|[A-Za-z0-9_ /.,-]+|\.\.\.)\]"
+)
+
+
+def infer_placeholder_type(bracket_text: str, has_dollar: bool = False) -> str:
+    """Return inferred data type hint for bracket text."""
+    clean_inner = bracket_text.strip("[]$ \t\n")
+    lower_inner = clean_inner.lower()
+    if (
+        has_dollar
+        or "$" in bracket_text
+        or any(kw in lower_inner for kw in ("amount", "dollar", "rent", "payment", "fee", "cost", "sum", "price"))
+        or set(clean_inner) == {"_"}
+    ):
+        return "CURRENCY"
+    if any(kw in lower_inner for kw in ("county", "state", "jurisdiction", "city", "township", "parish")):
+        return "JURISDICTION"
+    if any(kw in lower_inner for kw in ("date", "commencement")):
+        return "DATE"
+    if any(kw in lower_inner for kw in ("year", "month", "day", "duration", "term", "period")):
+        return "DURATION"
+    if any(kw in lower_inner for kw in ("acre", "acreage", "sqft", "square feet", "hectare")):
+        return "AREA"
+    if any(kw in lower_inner for kw in ("mw", "megawatt", "kw", "kilowatt", "gw", "gigawatt", "capacity", "size")):
+        return "CAPACITY"
+    if clean_inner.isdigit() or any(kw in lower_inner for kw in ("count", "number")):
+        return "NUMBER"
+    return "TEXT"
+
+
+def extract_template_placeholders(text: str) -> list[PlaceholderVariable]:
+    """Scan verbatim template text for fill-in brackets and return structured PlaceholderVariables."""
+    results: list[PlaceholderVariable] = []
+    seen = set()
+    for m in PLACEHOLDER_REGEX.finditer(text):
+        full_bracket = m.group(0)
+        has_dollar = bool(m.group("currency"))
+        inner = m.group("inner")
+        dtype = infer_placeholder_type(full_bracket, has_dollar)
+        if inner not in seen:
+            seen.add(inner)
+            results.append(
+                PlaceholderVariable(
+                    variable_name=inner,
+                    bracket_text=full_bracket,
+                    data_type_hint=dtype,
+                )
+            )
+    return results
+
+
+def normalize_template_canonical_path(
+    arg1: DocumentZone | str | None = None,
+    arg2: str | None = None,
+    title: str | None = None,
+    order: int = 1,
+    *,
+    zone: DocumentZone | str | None = None,
+    label: str | None = None,
+) -> str:
+    """Derive canonical hierarchy path for a template AST node (e.g. 'PREAMBLE', 'RECITALS.A', 'BODY.1.1', 'EXHIBIT_A.1')."""
+    target_zone = zone
+    target_label = label
+
+    if target_zone is None and target_label is None:
+        if isinstance(arg1, DocumentZone):
+            target_zone = arg1
+            target_label = arg2 or ""
+        elif isinstance(arg1, str) and arg1.upper() in DocumentZone.__members__:
+            target_zone = DocumentZone(arg1.upper())
+            target_label = arg2 or ""
+        else:
+            target_label = str(arg1 or "")
+            context = str(arg2 or "")
+            label_lower = target_label.lower()
+            context_lower = context.lower()
+
+            if "preamble" in label_lower or "preamble" in context_lower:
+                return "PREAMBLE"
+            if "recital" in label_lower or "recital" in context_lower:
+                m = re.search(r"\b([A-Z])\b", target_label.upper())
+                if m:
+                    return f"RECITALS.{m.group(1)}"
+                return f"RECITALS.{order}"
+            if "exhibit" in label_lower or "exhibit" in context_lower or "schedule" in label_lower:
+                token = clean_exhibit_token(target_label if "exhibit" in label_lower else f"{context} {target_label}")
+                sec_m = re.search(r"(\d+(?:\.\d+)*)", target_label)
+                sec_suffix = f".{sec_m.group(1)}" if sec_m else f".{order}"
+                return f"EXHIBIT_{token}{sec_suffix}"
+
+            target_zone = DocumentZone.BODY
+
+    clean_label = (target_label or "").strip()
+    if target_zone == DocumentZone.PREAMBLE or "preamble" in clean_label.lower():
+        return "PREAMBLE"
+    if target_zone == DocumentZone.RECITALS or "recital" in clean_label.lower():
+        m = re.search(r"\b([A-Z])\b", clean_label.upper())
+        if m:
+            return f"RECITALS.{m.group(1)}"
+        return f"RECITALS.{order}"
+    if target_zone in (DocumentZone.EXHIBIT_OR_SCHEDULE, DocumentZone.EXHIBITS) or "exhibit" in clean_label.lower():
+        token = clean_exhibit_token(clean_label)
+        sec_m = re.search(r"(\d+(?:\.\d+)*)", clean_label)
+        sec_suffix = f".{sec_m.group(1)}" if sec_m else f".{order}"
+        return f"EXHIBIT_{token}{sec_suffix}"
+
+    sec_num_match = re.search(r"(\d+(?:\.\d+)*)", clean_label)
+    if sec_num_match:
+        raw_num = sec_num_match.group(1)
+        parts = [p.strip(".") for p in raw_num.split(".") if p.strip(".")]
+        return "BODY." + ".".join(parts)
+
+    cleaned = re.sub(r"[^A-Za-z0-9]+", "_", clean_label).strip("_").upper()
+    return f"BODY.{cleaned or order}"
+
+
+def assemble_template_bundle(
+    *,
+    template_row: TemplateRegistryRow | None = None,
+    raw_clauses: list[RawTemplateClause] | None = None,
+    quarantine_span: PageSpan | None = None,
+    pass1_structure: TemplateStructureIndex | None = None,
+    pass2_extraction: TemplatePassExtraction | None = None,
+    struct_index: TemplateStructureIndex | None = None,
+    **kwargs,
+) -> TemplateExtractionBundle:
+    """Assemble raw extracted template clauses into canonical AST nodes, filtering execution signatures."""
+    p1 = pass1_structure or struct_index
+
+    # Resolve template_row
+    if template_row is None:
+        t_id = kwargs.get("template_id") or "tpl_unknown"
+        t_name = kwargs.get("template_name") or kwargs.get("form_name") or (p1.form_name if p1 else "Template")
+        state = kwargs.get("state_province") or kwargs.get("state") or (p1.state if p1 else "US")
+        country = kwargs.get("country") or (p1.country if p1 else "US")
+        tech = kwargs.get("energy_technology") or kwargs.get("technology") or (p1.energy_technology if p1 else EnergyTechnology.SOLAR)
+        f_type = kwargs.get("form_type") or (p1.form_type if p1 else FormType.OTHER)
+        v_year = str(kwargs.get("vintage_year") or kwargs.get("effective_vintage_year") or (p1.vintage_year if p1 else "2024"))
+        rev = kwargs.get("revision", "v1")
+        pdf_uri = kwargs.get("gcs_pdf_uri") or kwargs.get("pdf_storage_path", "")
+        h_hash = kwargs.get("sha256_hash") or kwargs.get("pdf_sha256", "")
+        p_count = int(kwargs.get("page_count") or kwargs.get("total_pages") or 1)
+        created_by = kwargs.get("created_by", "system")
+
+        template_row = TemplateRegistryRow(
+            template_id=t_id,
+            template_name=t_name,
+            country=country,
+            state_province=state,
+            energy_technology=tech,
+            form_type=f_type,
+            vintage_year=v_year,
+            revision=rev,
+            gcs_pdf_uri=pdf_uri,
+            sha256_hash=h_hash,
+            page_count=p_count,
+            clause_count=0,
+            is_active=True,
+            created_by=created_by,
+        )
+
+    # Resolve raw clauses list
+    clauses_in: list[RawTemplateClause] = []
+    if raw_clauses is not None:
+        clauses_in = raw_clauses
+    elif pass2_extraction is not None:
+        clauses_in = pass2_extraction.clauses
+    elif "clauses" in kwargs:
+        raw_items = kwargs["clauses"]
+        for item in raw_items:
+            if isinstance(item, RawTemplateClause):
+                clauses_in.append(item)
+            elif isinstance(item, dict):
+                clauses_in.append(RawTemplateClause(**item))
+
+    # Resolve quarantine span
+    if quarantine_span is None and p1 is not None:
+        if p1.quarantine_signatures_span is not None:
+            quarantine_span = p1.quarantine_signatures_span
+
+    retained_nodes: list[TemplateClauseRow] = []
+    quarantined_count = 0
+    now_iso = utc_now_iso()
+    has_exhibits = bool(p1 and p1.exhibits)
+
+    for idx, raw in enumerate(clauses_in):
+        raw_start = getattr(raw, "page_start", getattr(raw, "start_page", 1))
+        raw_end = getattr(raw, "page_end", getattr(raw, "end_page", raw_start))
+        raw_text = getattr(raw, "verbatim_text", getattr(raw, "section_text", ""))
+        raw_label = getattr(raw, "clause_label", getattr(raw, "section_number", f"1.{idx + 1}"))
+        raw_title = getattr(raw, "clause_title", None)
+        raw_scheme = getattr(raw, "numbering_scheme", NumberingScheme.DECIMAL)
+        raw_zone = getattr(raw, "document_zone", DocumentZone.BODY)
+
+        # Check signature zone or quarantine
+        is_signatures_zone = (
+            raw_zone == DocumentZone.SIGNATURES
+            or "SIGNATURE" in (getattr(raw, "canonical_path", None) or "").upper()
+            or "SIGNATURE" in str(getattr(raw, "clause_label", None) or "").upper()
+            or "SIGNATURE" in str(getattr(raw, "article_number", None) or "").upper()
+        )
+
+        in_quarantine_range = False
+        if quarantine_span:
+            q_start = getattr(quarantine_span, "page_start", getattr(quarantine_span, "start_page", 0))
+            q_end = getattr(quarantine_span, "page_end", getattr(quarantine_span, "end_page", 0))
+            if q_start > 0 and q_end >= q_start:
+                if raw_start <= q_end and raw_end >= q_start:
+                    in_quarantine_range = True
+
+        execution_kw = any(
+            kw in raw_text.upper()
+            for kw in ("IN WITNESS WHEREOF", "NOTARY PUBLIC", "SS:", "STATE OF", "COUNTY OF", "MY COMMISSION EXPIRES")
+        )
+
+        if is_signatures_zone or in_quarantine_range or (in_quarantine_range and execution_kw):
+            quarantined_count += 1
+            logger.info("Quarantined signature/notary block at pages %d-%d: %s", raw_start, raw_end, raw_label)
+            continue
+
+        placeholders = list(getattr(raw, "placeholder_variables", getattr(raw, "placeholders", [])))
+        if not placeholders:
+            placeholders = extract_template_placeholders(raw_text)
+        else:
+            existing_vars = {p.variable_name for p in placeholders}
+            extra = extract_template_placeholders(raw_text)
+            for ep in extra:
+                if ep.variable_name not in existing_vars:
+                    placeholders.append(ep)
+                    existing_vars.add(ep.variable_name)
+
+        if getattr(raw, "canonical_path", None):
+            canonical_path = raw.canonical_path
+        else:
+            canonical_path = normalize_template_canonical_path(
+                zone=raw_zone,
+                label=raw_label,
+                title=raw_title,
+                order=len(retained_nodes) + 1,
+            )
+
+        if "EXHIBIT" in canonical_path.upper() or raw_zone in (DocumentZone.EXHIBIT_OR_SCHEDULE, DocumentZone.EXHIBITS):
+            has_exhibits = True
+
+        depth = canonical_path.count(".")
+        node_id = f"{template_row.template_id}#{canonical_path}"
+        parent_node_id = None
+        if "." in canonical_path:
+            parent_path = canonical_path.rsplit(".", 1)[0]
+            parent_node_id = f"{template_row.template_id}#{parent_path}"
+
+        node = TemplateClauseRow(
+            template_id=template_row.template_id,
+            node_id=node_id,
+            parent_node_id=parent_node_id,
+            sibling_order=len(retained_nodes) + 1,
+            document_zone=raw_zone,
+            canonical_path=canonical_path,
+            depth=depth,
+            clause_label=raw_label,
+            clause_title=raw_title,
+            numbering_scheme=raw_scheme,
+            verbatim_text=raw_text,
+            placeholder_variables=placeholders,
+            page_start=raw_start,
+            page_end=raw_end,
+            created_at=now_iso,
+        )
+        retained_nodes.append(node)
+
+    template_row.clause_count = len(retained_nodes)
+    template_row.has_exhibits = has_exhibits
+    template_row.updated_at = now_iso
+
+    logger.info(
+        "Assembled template bundle for %s: %d nodes retained, %d quarantined",
+        template_row.template_id,
+        len(retained_nodes),
+        quarantined_count,
+    )
+
+    return TemplateExtractionBundle(
+        metadata=template_row,
+        clauses=retained_nodes,
+    )
+
+

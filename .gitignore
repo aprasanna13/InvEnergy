@@ -6,3 +6,4 @@ __pycache__/
 .local_data/
 data/
 .DS_Store
+.env

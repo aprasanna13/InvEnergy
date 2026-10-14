@@ -1,0 +1,1300 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Invenergy | Regional Template Studio &amp; Canonical AST Registry</title>
+  <link rel="icon" type="image/x-icon" href="/favicon.ico" />
+  <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png" />
+  <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
+  <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+  <style>
+    :root {
+      --brand-invenergy-green: #118751;
+      --brand-dark-green: #042B19;
+      --brand-pine-green: #0F633C;
+      --brand-canopy-green: #084B2C;
+      --brand-yellow: #FFCF0B;
+      --primary-green: var(--brand-invenergy-green);
+      --primary-slate: var(--brand-dark-green);
+
+      --neutrals-white: #FFFFFF;
+      --neutrals-light-green: #F5F8F7;
+      --neutrals-mint-wash: #EAF8F1;
+      --neutrals-sage-green: #CEE4DA;
+      --neutrals-dark-grey: #97A79F;
+      --neutrals-gray: #626D68;
+      --neutrals-blue: #DDEDF6;
+
+      --tech-wind: #0F633C;
+      --tech-solar: #D97706;
+      --tech-storage: #0E79AF;
+      --tech-transmission: #612C83;
+      --tech-thermal: #C2410C;
+      --tech-cross: #4338CA;
+      --tech-services: #1F2A44;
+
+      --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      --font-mono: SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      --radius-sm: 4px;
+      --radius-md: 6px;
+      --radius-lg: 8px;
+      --shadow-card: 0 1px 3px rgba(4, 43, 25, 0.08), 0 1px 2px rgba(4, 43, 25, 0.04);
+      --shadow-hover: 0 6px 16px rgba(4, 43, 25, 0.12);
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: var(--font-sans);
+      background: var(--neutrals-light-green);
+      color: var(--brand-dark-green);
+      height: 100dvh;
+      min-height: 100dvh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    header {
+      background: var(--brand-dark-green);
+      color: var(--neutrals-white);
+      border-bottom: 2px solid var(--brand-invenergy-green);
+      padding: 10px 20px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      flex-wrap: wrap;
+      z-index: 20;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .brand a {
+      color: var(--neutrals-white);
+      text-decoration: none;
+      display: flex;
+      align-items: center;
+    }
+
+    .brand-title {
+      font-size: 15px;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .badge-studio {
+      background: var(--brand-yellow);
+      color: var(--brand-dark-green);
+      font-size: 10px;
+      font-weight: 800;
+      padding: 2px 6px;
+      border-radius: 4px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .toolbar {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    button {
+      background: rgba(255, 255, 255, 0.12);
+      color: var(--neutrals-white);
+      border: 1px solid rgba(206, 228, 218, 0.4);
+      padding: 6px 12px;
+      border-radius: var(--radius-sm);
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      transition: background 150ms ease, border-color 150ms ease;
+    }
+
+    button:hover:not(:disabled) {
+      background: rgba(255, 255, 255, 0.22);
+      border-color: var(--brand-yellow);
+    }
+
+    button.primary {
+      background: var(--brand-invenergy-green);
+      border-color: var(--brand-invenergy-green);
+      color: #fff;
+    }
+
+    button.primary:hover:not(:disabled) {
+      background: #0d6e41;
+    }
+
+    button:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    .nav-back-btn {
+      text-decoration: none;
+      background: rgba(255, 255, 255, 0.08);
+      color: var(--neutrals-white);
+      border: 1px solid rgba(206, 228, 218, 0.3);
+      padding: 5px 10px;
+      border-radius: var(--radius-sm);
+      font-size: 12px;
+      font-weight: 600;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .nav-back-btn:hover {
+      background: rgba(255, 255, 255, 0.18);
+    }
+
+    .user-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: rgba(255, 255, 255, 0.12);
+      border: 1px solid rgba(255, 255, 255, 0.25);
+      border-radius: var(--radius-sm);
+      padding: 3px 8px;
+      font-size: 11.5px;
+      color: #ffffff;
+      font-weight: 600;
+    }
+
+    /* Filter & Taxonomy Bar */
+    .filter-bar {
+      background: var(--brand-canopy-green);
+      color: var(--neutrals-white);
+      padding: 8px 18px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      flex-wrap: wrap;
+      border-bottom: 1px solid rgba(206, 228, 218, 0.25);
+      font-size: 12.5px;
+    }
+
+    .filter-group {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    select, input[type="text"] {
+      background: var(--neutrals-white);
+      color: var(--brand-dark-green);
+      border: 1px solid var(--neutrals-sage-green);
+      padding: 5px 9px;
+      border-radius: var(--radius-sm);
+      font-size: 12px;
+      outline: none;
+    }
+
+    select:focus, input[type="text"]:focus {
+      border-color: var(--brand-invenergy-green);
+      box-shadow: 0 0 0 2px var(--neutrals-mint-wash);
+    }
+
+    .kpi-container {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .kpi-pill {
+      background: rgba(255, 255, 255, 0.12);
+      border: 1px solid rgba(206, 228, 218, 0.35);
+      padding: 2px 8px;
+      border-radius: 999px;
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--neutrals-mint-wash);
+    }
+
+    /* Split Viewport Workspace */
+    .workspace {
+      flex: 1;
+      display: grid;
+      grid-template-columns: 55% 45%;
+      overflow: hidden;
+    }
+
+    /* Left Pane: AST Explorer */
+    .left-pane {
+      display: flex;
+      flex-direction: column;
+      border-right: 2px solid var(--neutrals-sage-green);
+      background: #FFFFFF;
+      overflow: hidden;
+    }
+
+    .template-selector-bar {
+      padding: 10px 16px;
+      background: var(--neutrals-light-green);
+      border-bottom: 1px solid var(--neutrals-sage-green);
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .template-select-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .template-select-row select {
+      flex: 1;
+      font-weight: 600;
+      font-size: 13px;
+    }
+
+    .template-meta-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+      font-size: 11.5px;
+      color: var(--neutrals-gray);
+    }
+
+    .ast-search-bar {
+      padding: 8px 16px;
+      border-bottom: 1px solid var(--neutrals-sage-green);
+      background: #FFFFFF;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .ast-search-bar input {
+      flex: 1;
+      font-size: 12px;
+    }
+
+    .ast-content-list {
+      flex: 1;
+      overflow-y: auto;
+      padding: 14px 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    /* Clause Card Styles */
+    .clause-card {
+      border: 1px solid var(--neutrals-sage-green);
+      border-left: 4px solid var(--brand-pine-green);
+      background: #FFFFFF;
+      border-radius: var(--radius-md);
+      padding: 12px 14px;
+      box-shadow: var(--shadow-card);
+      transition: all 160ms ease;
+      cursor: pointer;
+    }
+
+    .clause-card:hover {
+      box-shadow: var(--shadow-hover);
+      border-color: var(--brand-invenergy-green);
+    }
+
+    .clause-card.selected {
+      border-color: var(--brand-invenergy-green);
+      border-left-color: var(--brand-yellow);
+      background: var(--neutrals-mint-wash);
+      box-shadow: 0 0 0 2px var(--brand-invenergy-green);
+    }
+
+    .clause-card.zone-preamble { border-left-color: #6366F1; }
+    .clause-card.zone-recitals { border-left-color: #8B5CF6; }
+    .clause-card.zone-body { border-left-color: var(--brand-invenergy-green); }
+    .clause-card.zone-exhibits { border-left-color: #EC4899; }
+
+    .clause-card-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      margin-bottom: 6px;
+      flex-wrap: wrap;
+    }
+
+    .path-chip {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      font-weight: 700;
+      background: var(--brand-dark-green);
+      color: #FFFFFF;
+      padding: 2px 7px;
+      border-radius: var(--radius-sm);
+      letter-spacing: 0.02em;
+    }
+
+    .page-badge {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--neutrals-gray);
+      background: var(--neutrals-light-green);
+      border: 1px solid var(--neutrals-sage-green);
+      padding: 2px 6px;
+      border-radius: var(--radius-sm);
+    }
+
+    .clause-title {
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--brand-dark-green);
+    }
+
+    .clause-verbatim {
+      font-size: 12.5px;
+      line-height: 1.55;
+      color: #2D3748;
+      white-space: pre-wrap;
+      margin: 6px 0;
+    }
+
+    .placeholder-highlight {
+      background: #FEF3C7;
+      border: 1px solid #F59E0B;
+      color: #92400E;
+      font-weight: 700;
+      font-family: var(--font-mono);
+      padding: 1px 4px;
+      border-radius: 3px;
+    }
+
+    .variables-drawer {
+      margin-top: 8px;
+      padding-top: 8px;
+      border-top: 1px dashed var(--neutrals-sage-green);
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      align-items: center;
+    }
+
+    .var-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 11px;
+      background: #EFF6FF;
+      border: 1px solid #93C5FD;
+      color: #1E40AF;
+      padding: 2px 6px;
+      border-radius: var(--radius-sm);
+      font-family: var(--font-mono);
+    }
+
+    .var-type {
+      font-size: 9.5px;
+      font-weight: 800;
+      text-transform: uppercase;
+      background: #DBEAFE;
+      color: #1E3A8A;
+      padding: 1px 4px;
+      border-radius: 2px;
+    }
+
+    /* Right Pane: PDF Viewport */
+    .right-pane {
+      display: flex;
+      flex-direction: column;
+      background: #1F2A44;
+      overflow: hidden;
+    }
+
+    .pdf-toolbar {
+      background: var(--brand-canopy-green);
+      color: var(--neutrals-white);
+      border-bottom: 1px solid rgba(206, 228, 218, 0.25);
+      padding: 8px 16px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 12px;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .pdf-canvas-container {
+      flex: 1;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 16px;
+      gap: 16px;
+      background: #2D3748;
+    }
+
+    .pdf-page-wrapper {
+      position: relative;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+      border-radius: 2px;
+      background: #FFFFFF;
+      transition: transform 120ms ease;
+    }
+
+    .pdf-page-label {
+      position: absolute;
+      top: 6px;
+      left: 6px;
+      background: rgba(4, 43, 25, 0.75);
+      color: #FFFFFF;
+      font-family: var(--font-mono);
+      font-size: 10px;
+      padding: 2px 5px;
+      border-radius: 2px;
+      pointer-events: none;
+    }
+
+    /* Technology and Form Badges */
+    .tech-pill {
+      font-size: 10.5px;
+      font-weight: 700;
+      padding: 2px 7px;
+      border-radius: 999px;
+      color: #FFFFFF;
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+    }
+    .tech-ONSHORE_WIND { background: var(--tech-wind); }
+    .tech-SOLAR { background: var(--tech-solar); }
+    .tech-STORAGE { background: var(--tech-storage); }
+    .tech-TRANSMISSION { background: var(--tech-transmission); }
+    .tech-THERMAL { background: var(--tech-thermal); }
+    .tech-CROSS_TECHNOLOGY { background: var(--tech-cross); }
+    .tech-GEOTHERMAL { background: var(--tech-services); }
+
+    /* Modals */
+    .modal-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(4, 43, 25, 0.65);
+      backdrop-filter: blur(4px);
+      z-index: 9999;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 16px;
+    }
+
+    .modal-card {
+      background: #FFFFFF;
+      border-radius: var(--radius-lg);
+      box-shadow: 0 20px 45px rgba(0, 0, 0, 0.35);
+      border-top: 4px solid var(--brand-invenergy-green);
+      width: 100%;
+      max-width: 520px;
+      padding: 22px 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    .modal-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 1px solid var(--neutrals-sage-green);
+      padding-bottom: 10px;
+    }
+
+    .modal-header h3 {
+      margin: 0;
+      font-size: 16px;
+      color: var(--brand-dark-green);
+    }
+
+    .form-row {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .form-row label {
+      font-size: 11.5px;
+      font-weight: 700;
+      color: var(--brand-pine-green);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+
+    .form-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+
+    .empty-state {
+      padding: 48px 24px;
+      text-align: center;
+      color: var(--neutrals-gray);
+      font-size: 14px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .empty-icon {
+      font-size: 36px;
+    }
+  </style>
+</head>
+<body>
+  <!-- Header -->
+  <header>
+    <div class="brand">
+      <a href="/" title="Back to Contract Intelligence Workspace" class="nav-back-btn">← Contract Workspace</a>
+      <span class="brand-title">
+        <img src="/favicon-32x32.png" width="20" height="20" alt="Invenergy Icon" style="border-radius: 4px;" />
+        Regional Template Studio &amp; Canonical AST Registry
+      </span>
+      <span class="badge-studio">CR-9 Master</span>
+    </div>
+    <div class="toolbar">
+      <button id="seed-templates-btn" onclick="seedSampleTemplates()" title="Cold-start scan samples/Templates/ for baseline canonical forms">
+        🌱 Seed Sample Forms
+      </button>
+      <button class="primary" id="open-upload-modal-btn" onclick="openUploadModal()" title="Upload a new regional master template PDF">
+        + Upload Master Template
+      </button>
+      <div class="user-badge" id="user-badge">
+        <span>👤 Loading user...</span>
+      </div>
+    </div>
+  </header>
+
+  <!-- Filter & Taxonomy Bar -->
+  <div class="filter-bar">
+    <div class="filter-group">
+      <strong>Taxonomy Filters:</strong>
+      <select id="filter-country" onchange="applyFilters()">
+        <option value="">All Countries</option>
+        <option value="US" selected>United States (US)</option>
+      </select>
+      <select id="filter-state" onchange="applyFilters()">
+        <option value="">All States / Jurisdictions</option>
+        <option value="IL">Illinois (IL)</option>
+        <option value="MI">Michigan (MI)</option>
+        <option value="OK">Oklahoma (OK)</option>
+        <option value="US">Federal / US General</option>
+      </select>
+      <select id="filter-tech" onchange="applyFilters()">
+        <option value="">All Technologies</option>
+        <option value="ONSHORE_WIND">Onshore Wind</option>
+        <option value="SOLAR">Solar</option>
+        <option value="STORAGE">Storage (BESS)</option>
+        <option value="TRANSMISSION">Transmission</option>
+        <option value="THERMAL">Thermal</option>
+        <option value="CROSS_TECHNOLOGY">Cross-Technology</option>
+      </select>
+      <select id="filter-form-type" onchange="applyFilters()">
+        <option value="">All Form Types</option>
+        <option value="WIND_EASEMENT">Wind Easement</option>
+        <option value="SOLAR_LEASE">Solar Lease</option>
+        <option value="SOLAR_EASEMENT">Solar Easement</option>
+        <option value="STORAGE_EASEMENT">Storage Easement</option>
+        <option value="LAND_OPTION_PURCHASE">Land Option Purchase</option>
+        <option value="PARTICIPATION_EASEMENT">Participation Easement</option>
+      </select>
+      <select id="filter-vintage" onchange="applyFilters()">
+        <option value="">All Vintages</option>
+        <option value="2025">2025</option>
+        <option value="2024">2024</option>
+        <option value="2020">2020</option>
+      </select>
+    </div>
+    <div class="kpi-container" id="kpi-container">
+      <span class="kpi-pill" id="kpi-template-count">Templates: 0</span>
+      <span class="kpi-pill" id="kpi-clause-count">Clauses: 0</span>
+      <span class="kpi-pill" id="kpi-variable-count">Placeholders: 0</span>
+    </div>
+  </div>
+
+  <!-- Main Split Viewport -->
+  <div class="workspace">
+    <!-- Left Pane: Canonical AST Tree Explorer -->
+    <div class="left-pane">
+      <div class="template-selector-bar">
+        <div class="template-select-row">
+          <label style="font-size:12px; font-weight:700; color:var(--brand-pine-green); text-transform:uppercase;">Master Template:</label>
+          <select id="template-dropdown" onchange="onTemplateSelected()"></select>
+        </div>
+        <div class="template-meta-row" id="template-meta-row">
+          <span>Select a master template above to explore its canonical AST and variable tokens.</span>
+        </div>
+      </div>
+
+      <div class="ast-search-bar">
+        <span style="font-size:13px;">🔍</span>
+        <input type="text" id="clause-search-input" placeholder="Search canonical paths, section titles, or verbatim clause text..." oninput="filterClauses()" />
+        <span id="clause-filter-count" style="font-size:11px; font-weight:600; color:var(--neutrals-gray);"></span>
+      </div>
+
+      <div class="ast-content-list" id="ast-content-list">
+        <div class="empty-state">
+          <div class="empty-icon">🏛️</div>
+          <div><strong>No Master Template Selected</strong></div>
+          <div>Choose an approved template from the dropdown above or click "Seed Sample Forms" to load canonical baselines.</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Right Pane: Synchronized PDF.js Viewer -->
+    <div class="right-pane">
+      <div class="pdf-toolbar">
+        <div>
+          <strong id="pdf-page-indicator">PDF Viewer (Physical Page 1)</strong>
+        </div>
+        <div style="display:flex; gap:6px; align-items:center;">
+          <button onclick="changeZoom(-0.2)">Zoom -</button>
+          <span id="zoom-label" style="font-family:var(--font-mono); font-weight:700;">115%</span>
+          <button onclick="changeZoom(0.2)">Zoom +</button>
+          <input type="number" id="jump-page-input" min="1" value="1" style="width:50px; padding:3px 5px;" />
+          <button onclick="jumpToPage(parseInt(document.getElementById('jump-page-input').value || '1', 10))">Go to Page</button>
+          <a id="open-pdf-external-btn" href="#" target="_blank" style="color:var(--brand-yellow); text-decoration:none; font-size:11px; margin-left:6px; font-weight:700;">Open PDF ↗</a>
+        </div>
+      </div>
+      <div class="pdf-canvas-container" id="pdf-canvas-container">
+        <div class="empty-state" style="color:#A0AEC0;">
+          <div class="empty-icon">📄</div>
+          <div>Select a master template to load the underlying PDF.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Upload Template Modal -->
+  <div class="modal-overlay" id="upload-modal">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3>Upload Regional Master Template</h3>
+        <button onclick="closeUploadModal()" style="background:transparent; border:none; color:var(--brand-dark-green); font-size:16px;">✕</button>
+      </div>
+      <form id="upload-template-form" onsubmit="submitTemplateUpload(event)">
+        <div class="form-row">
+          <label>Template PDF File</label>
+          <input type="file" id="modal-file" accept=".pdf" required />
+        </div>
+        <div class="form-grid">
+          <div class="form-row">
+            <label>Country</label>
+            <input type="text" id="modal-country" value="US" required />
+          </div>
+          <div class="form-row">
+            <label>State / Province</label>
+            <input type="text" id="modal-state" placeholder="e.g. IL, MI, OK" required />
+          </div>
+        </div>
+        <div class="form-grid">
+          <div class="form-row">
+            <label>Energy Technology</label>
+            <select id="modal-tech" required>
+              <option value="SOLAR">SOLAR</option>
+              <option value="ONSHORE_WIND">ONSHORE_WIND</option>
+              <option value="STORAGE">STORAGE</option>
+              <option value="TRANSMISSION">TRANSMISSION</option>
+              <option value="THERMAL">THERMAL</option>
+              <option value="CROSS_TECHNOLOGY">CROSS_TECHNOLOGY</option>
+            </select>
+          </div>
+          <div class="form-row">
+            <label>Form Type</label>
+            <select id="modal-form-type" required>
+              <option value="SOLAR_LEASE">SOLAR_LEASE</option>
+              <option value="SOLAR_EASEMENT">SOLAR_EASEMENT</option>
+              <option value="WIND_EASEMENT">WIND_EASEMENT</option>
+              <option value="STORAGE_EASEMENT">STORAGE_EASEMENT</option>
+              <option value="LAND_OPTION_PURCHASE">LAND_OPTION_PURCHASE</option>
+              <option value="PARTICIPATION_EASEMENT">PARTICIPATION_EASEMENT</option>
+              <option value="OTHER">OTHER</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-grid">
+          <div class="form-row">
+            <label>Vintage Year</label>
+            <input type="text" id="modal-vintage" value="2025" required />
+          </div>
+          <div class="form-row">
+            <label>Revision</label>
+            <input type="text" id="modal-revision" value="v1" required />
+          </div>
+        </div>
+        <div class="form-row">
+          <label>Custom Template Name (Optional)</label>
+          <input type="text" id="modal-name" placeholder="e.g. Illinois Solar Lease Form (2025)" />
+        </div>
+        <div id="upload-status-msg" style="font-size:12px; color:var(--brand-pine-green); font-weight:600; min-height:16px;"></div>
+        <div style="display:flex; justify-content:flex-end; gap:8px; margin-top:8px;">
+          <button type="button" onclick="closeUploadModal()">Cancel</button>
+          <button type="submit" class="primary" id="modal-submit-btn">Upload &amp; Extract AST</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script>
+    if (window.pdfjsLib) {
+      window.pdfjsLib.GlobalWorkerOptions.workerSrc =
+        "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+    }
+
+    let allTemplates = [];
+    let currentBundle = null;
+    let selectedNodeId = null;
+    let currentUserContext = null;
+    let pdfDoc = null;
+    let pdfScale = 1.15;
+    let renderedPages = new Set();
+    let currentPhysicalPage = 1;
+
+    // Helper: escape HTML
+    function escapeHtml(text) {
+      if (!text) return "";
+      return String(text)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
+    }
+
+    // Helper: highlight bracketed placeholders in verbatim clause text
+    function formatVerbatimWithPlaceholders(text) {
+      if (!text) return "";
+      const escaped = escapeHtml(text);
+      // Highlight $[_____], [County], [Name], etc.
+      return escaped.replace(/(\$\[[^\]]+\]|\[[A-Za-z0-9_\s\.\,\-\$\/]{2,80}\])/g, (match) => {
+        return `<span class="placeholder-highlight">${match}</span>`;
+      });
+    }
+
+    // Token retrieval helper supporting Firebase ID token and localStorage session sharing
+    async function getAuthToken() {
+      if (window.firebase && firebase.auth && firebase.auth().currentUser) {
+        try {
+          return await firebase.auth().currentUser.getIdToken();
+        } catch (e) {
+          console.warn("Could not get Firebase token in Template Studio:", e);
+        }
+      }
+      return localStorage.getItem("invenergy_auth_token") || null;
+    }
+
+    // Universal authenticated fetch interceptor for Template Studio (CR-7 / CR-10 compliance)
+    const _originalFetch = window.fetch;
+    window.fetch = async function (resource, init = {}) {
+      let url = typeof resource === "string" ? resource : (resource && resource.url ? resource.url : "");
+      if (url.startsWith("/api/v1/") && !url.startsWith("/api/v1/auth/config") && !url.startsWith("/api/v1/auth/request-link")) {
+        const token = await getAuthToken();
+        if (token) {
+          init = init || {};
+          const headers = new Headers(init.headers || {});
+          if (!headers.has("Authorization")) {
+            headers.set("Authorization", `Bearer ${token}`);
+          }
+          init.headers = headers;
+        }
+      }
+      return _originalFetch(resource, init);
+    };
+
+    // Auth Initialization
+    async function initStudioAuth() {
+      try {
+        const cfgRes = await fetch("/api/v1/auth/config");
+        const authConfig = await cfgRes.json();
+        if (!authConfig.auth_enabled) {
+          currentUserContext = {
+            email: "dev@invenergy.com",
+            role: "admin",
+            domain: "invenergy.com",
+            uid: "dev_bypass_uid"
+          };
+          updateUserBadge();
+          await loadTemplatesList();
+          return;
+        }
+
+        // Firebase Auth
+        if (window.firebase && (!firebase.apps || !firebase.apps.length) && authConfig.firebase_api_key) {
+          firebase.initializeApp({
+            apiKey: authConfig.firebase_api_key,
+            authDomain: authConfig.firebase_auth_domain,
+            projectId: authConfig.project_id,
+          });
+        }
+
+        if (window.firebase && firebase.auth) {
+          firebase.auth().onAuthStateChanged(async (user) => {
+            if (user) {
+              try {
+                const token = await user.getIdToken();
+                localStorage.setItem("invenergy_auth_token", token);
+              } catch (e) {
+                console.warn("Failed caching auth token:", e);
+              }
+              const meRes = await fetch("/api/v1/auth/me");
+              if (meRes.ok) {
+                currentUserContext = await meRes.json();
+              } else {
+                currentUserContext = { email: user.email, role: "viewer" };
+              }
+            } else {
+              currentUserContext = null;
+            }
+            updateUserBadge();
+            await loadTemplatesList();
+          });
+
+          // Proactive 45-minute token refresh cycle to prevent 60-min session drops
+          setInterval(async () => {
+            if (window.firebase && firebase.auth && firebase.auth().currentUser) {
+              try {
+                const refreshed = await firebase.auth().currentUser.getIdToken(true);
+                localStorage.setItem("invenergy_auth_token", refreshed);
+              } catch (e) {
+                console.warn("Template Studio periodic token refresh failed:", e);
+              }
+            }
+          }, 45 * 60 * 1000);
+        } else {
+          updateUserBadge();
+          await loadTemplatesList();
+        }
+      } catch (err) {
+        console.warn("Auth initialization warning:", err);
+        currentUserContext = { email: "analyst@invenergy.com", role: "admin" };
+        updateUserBadge();
+        await loadTemplatesList();
+      }
+    }
+
+    function updateUserBadge() {
+      const badge = document.getElementById("user-badge");
+      const uploadBtn = document.getElementById("open-upload-modal-btn");
+      const seedBtn = document.getElementById("seed-templates-btn");
+
+      if (currentUserContext) {
+        badge.innerHTML = `<span>👤 ${escapeHtml(currentUserContext.email)} (${currentUserContext.role})</span>`;
+        const isAdmin = currentUserContext.role === "admin";
+        if (uploadBtn) uploadBtn.disabled = !isAdmin;
+        if (seedBtn) seedBtn.disabled = !isAdmin;
+      } else {
+        badge.innerHTML = `<span>👤 Guest (read-only)</span>`;
+        if (uploadBtn) uploadBtn.disabled = true;
+        if (seedBtn) seedBtn.disabled = true;
+      }
+    }
+
+    // Load templates from API
+    async function loadTemplatesList(targetTemplateId = null) {
+      try {
+        const res = await fetch("/api/v1/templates");
+        if (!res.ok) throw new Error("Failed to load templates");
+        const data = await res.json();
+        allTemplates = Array.isArray(data) ? data : (data.templates || []);
+
+        // If zero templates, attempt auto-seed if admin
+        if (allTemplates.length === 0 && currentUserContext && currentUserContext.role === "admin") {
+          console.info("Zero templates discovered, auto-seeding baseline canonical forms...");
+          await seedSampleTemplates(false);
+          return;
+        }
+
+        applyFilters(targetTemplateId);
+      } catch (err) {
+        console.error("Error loading templates:", err);
+      }
+    }
+
+    function applyFilters(targetTemplateId = null) {
+      const country = document.getElementById("filter-country").value.trim().toUpperCase();
+      const state = document.getElementById("filter-state").value.trim().toUpperCase();
+      const tech = document.getElementById("filter-tech").value.trim();
+      const formType = document.getElementById("filter-form-type").value.trim();
+      const vintage = document.getElementById("filter-vintage").value.trim();
+
+      const filtered = allTemplates.filter(t => {
+        if (country && t.country.toUpperCase() !== country) return false;
+        if (state && t.state_province.toUpperCase() !== state) return false;
+        if (tech && t.energy_technology !== tech) return false;
+        if (formType && t.form_type !== formType) return false;
+        if (vintage && String(t.vintage_year) !== vintage) return false;
+        return true;
+      });
+
+      // Update KPIs
+      const totalClauses = filtered.reduce((acc, t) => acc + (t.clause_count || 0), 0);
+      document.getElementById("kpi-template-count").textContent = `Templates: ${filtered.length}`;
+      document.getElementById("kpi-clause-count").textContent = `Clauses: ${totalClauses}`;
+
+      // Populate dropdown
+      const selectEl = document.getElementById("template-dropdown");
+      selectEl.innerHTML = "";
+
+      if (filtered.length === 0) {
+        const opt = document.createElement("option");
+        opt.value = "";
+        opt.textContent = "-- No templates matching filters --";
+        selectEl.appendChild(opt);
+        showEmptyAST();
+        return;
+      }
+
+      for (const tpl of filtered) {
+        const opt = document.createElement("option");
+        opt.value = tpl.template_id;
+        opt.textContent = `[${tpl.state_province} · ${tpl.energy_technology}] ${tpl.template_name} (${tpl.vintage_year} · ${tpl.clause_count} clauses)`;
+        selectEl.appendChild(opt);
+      }
+
+      const activeId = targetTemplateId || selectEl.value;
+      if (activeId && filtered.some(t => t.template_id === activeId)) {
+        selectEl.value = activeId;
+        loadTemplateBundle(activeId);
+      } else if (filtered.length > 0) {
+        selectEl.value = filtered[0].template_id;
+        loadTemplateBundle(filtered[0].template_id);
+      }
+    }
+
+    async function onTemplateSelected() {
+      const tplId = document.getElementById("template-dropdown").value;
+      if (tplId) {
+        await loadTemplateBundle(tplId);
+      }
+    }
+
+    async function loadTemplateBundle(templateId) {
+      try {
+        const res = await fetch(`/api/v1/templates/${encodeURIComponent(templateId)}`);
+        if (!res.ok) throw new Error("Template bundle not found");
+        currentBundle = await res.json();
+
+        updateTemplateMetaRow(currentBundle.metadata);
+        renderASTTree(currentBundle.clauses);
+        loadPdfViewer(`/api/v1/templates/${encodeURIComponent(templateId)}/pdf`);
+      } catch (err) {
+        console.error("Error loading bundle:", err);
+      }
+    }
+
+    function updateTemplateMetaRow(meta) {
+      const metaRow = document.getElementById("template-meta-row");
+      const extBtn = document.getElementById("open-pdf-external-btn");
+      extBtn.href = `/api/v1/templates/${encodeURIComponent(meta.template_id)}/pdf`;
+
+      const shaShort = meta.sha256_hash ? meta.sha256_hash.substring(0, 12) : "n/a";
+      metaRow.innerHTML = `
+        <span class="tech-pill tech-${meta.energy_technology}">${meta.energy_technology}</span>
+        <span class="path-chip">${escapeHtml(meta.template_id)}</span>
+        <span>SHA-256: <code>${shaShort}…</code></span>
+        <span>Pages: <strong>${meta.page_count}</strong></span>
+        <span>Total Clauses: <strong>${meta.clause_count}</strong></span>
+        <span>Rev: <strong>${meta.revision}</strong></span>
+      `;
+    }
+
+    function renderASTTree(clauses) {
+      const container = document.getElementById("ast-content-list");
+      container.innerHTML = "";
+
+      if (!clauses || clauses.length === 0) {
+        showEmptyAST();
+        return;
+      }
+
+      // Count total variables
+      let totalVars = 0;
+
+      clauses.forEach(c => {
+        const card = document.createElement("div");
+        const zoneClass = `zone-${c.document_zone.toLowerCase()}`;
+        const isSelected = selectedNodeId === c.node_id ? "selected" : "";
+        card.className = `clause-card ${zoneClass} ${isSelected}`;
+        card.id = `clause-card-${c.node_id}`;
+        card.style.marginLeft = `${Math.max(0, (c.depth - 1) * 16)}px`;
+
+        const vars = c.placeholder_variables || [];
+        totalVars += vars.length;
+
+        card.innerHTML = `
+          <div class="clause-card-header" onclick="selectClauseNode('${c.node_id}', ${c.page_start})">
+            <div>
+              <span class="path-chip">${escapeHtml(c.canonical_path)}</span>
+              <strong style="margin-left:6px;">${escapeHtml(c.clause_label)}</strong>
+              ${c.clause_title ? `<span class="clause-title" style="margin-left:6px;">${escapeHtml(c.clause_title)}</span>` : ""}
+            </div>
+            <div>
+              <span class="page-badge" onclick="event.stopPropagation(); jumpToPage(${c.page_start});" title="Click to view page in PDF">p. ${c.page_start}${c.page_end !== c.page_start ? `–${c.page_end}` : ""}</span>
+            </div>
+          </div>
+          <div class="clause-verbatim" onclick="selectClauseNode('${c.node_id}', ${c.page_start})">${formatVerbatimWithPlaceholders(c.verbatim_text)}</div>
+          ${vars.length > 0 ? `
+            <div class="variables-drawer" onclick="selectClauseNode('${c.node_id}', ${c.page_start})">
+              <span style="font-size:10.5px; font-weight:700; color:var(--brand-pine-green); text-transform:uppercase;">Placeholders (${vars.length}):</span>
+              ${vars.map(v => `<span class="var-badge"><span class="var-type">${escapeHtml(v.inferred_type)}</span> ${escapeHtml(v.variable_name)}</span>`).join("")}
+            </div>
+          ` : ""}
+        `;
+        container.appendChild(card);
+      });
+
+      document.getElementById("kpi-variable-count").textContent = `Placeholders: ${totalVars}`;
+      document.getElementById("clause-filter-count").textContent = `Showing all ${clauses.length} AST clauses`;
+    }
+
+    function selectClauseNode(nodeId, pageNum) {
+      selectedNodeId = nodeId;
+      document.querySelectorAll(".clause-card").forEach(el => el.classList.remove("selected"));
+      const targetCard = document.getElementById(`clause-card-${nodeId}`);
+      if (targetCard) targetCard.classList.add("selected");
+      jumpToPage(pageNum);
+    }
+
+    function filterClauses() {
+      if (!currentBundle || !currentBundle.clauses) return;
+      const q = document.getElementById("clause-search-input").value.toLowerCase().trim();
+      const filtered = currentBundle.clauses.filter(c => {
+        if (!q) return true;
+        if (c.canonical_path.toLowerCase().includes(q)) return true;
+        if (c.clause_label.toLowerCase().includes(q)) return true;
+        if (c.clause_title && c.clause_title.toLowerCase().includes(q)) return true;
+        if (c.verbatim_text.toLowerCase().includes(q)) return true;
+        if (c.placeholder_variables && c.placeholder_variables.some(v => v.variable_name.toLowerCase().includes(q))) return true;
+        return false;
+      });
+
+      renderASTTree(filtered);
+      document.getElementById("clause-filter-count").textContent = q ? `${filtered.length} of ${currentBundle.clauses.length} clauses` : `Showing all ${filtered.length} AST clauses`;
+    }
+
+    function showEmptyAST() {
+      document.getElementById("ast-content-list").innerHTML = `
+        <div class="empty-state">
+          <div class="empty-icon">📂</div>
+          <div><strong>No Clauses Found</strong></div>
+          <div>No canonical clauses match current filters.</div>
+        </div>
+      `;
+    }
+
+    // PDF.js Synchronized Multi-Page Viewport
+    async function loadPdfViewer(pdfUrl) {
+      const container = document.getElementById("pdf-canvas-container");
+      container.innerHTML = `<div class="empty-state" style="color:#A0AEC0;"><div class="empty-icon">⏳</div><div>Loading Master Template PDF...</div></div>`;
+      renderedPages.clear();
+
+      try {
+        const loadingTask = pdfjsLib.getDocument(pdfUrl);
+        pdfDoc = await loadingTask.promise;
+        container.innerHTML = "";
+
+        for (let pageNum = 1; pageNum <= pdfDoc.numPages; pageNum++) {
+          const wrapper = document.createElement("div");
+          wrapper.className = "pdf-page-wrapper";
+          wrapper.id = `pdf-page-wrapper-${pageNum}`;
+
+          const label = document.createElement("div");
+          label.className = "pdf-page-label";
+          label.textContent = `Page ${pageNum} of ${pdfDoc.numPages}`;
+          wrapper.appendChild(label);
+
+          const canvas = document.createElement("canvas");
+          canvas.id = `pdf-canvas-page-${pageNum}`;
+          wrapper.appendChild(canvas);
+          container.appendChild(wrapper);
+
+          // Lazy load first 3 pages immediately, others as scrolled
+          if (pageNum <= 3) {
+            renderPdfPage(pageNum);
+          }
+        }
+
+        // Set up intersection observer for remaining pages
+        const observer = new IntersectionObserver((entries) => {
+          entries.forEach(entry => {
+            if (entry.isIntersecting) {
+              const pNum = parseInt(entry.target.id.replace("pdf-page-wrapper-", ""), 10);
+              renderPdfPage(pNum);
+              currentPhysicalPage = pNum;
+              document.getElementById("pdf-page-indicator").textContent = `PDF Viewer (Physical Page ${pNum} of ${pdfDoc.numPages})`;
+              document.getElementById("jump-page-input").value = pNum;
+            }
+          });
+        }, { root: container, threshold: 0.1 });
+
+        document.querySelectorAll(".pdf-page-wrapper").forEach(el => observer.observe(el));
+      } catch (err) {
+        console.error("PDF loading failed:", err);
+        container.innerHTML = `<div class="empty-state" style="color:#F87171;"><div class="empty-icon">⚠️</div><div>Failed to load PDF: ${escapeHtml(err.message)}</div></div>`;
+      }
+    }
+
+    async function renderPdfPage(pageNum) {
+      if (!pdfDoc || renderedPages.has(pageNum)) return;
+      renderedPages.add(pageNum);
+
+      try {
+        const page = await pdfDoc.getPage(pageNum);
+        const viewport = page.getViewport({ scale: pdfScale });
+        const canvas = document.getElementById(`pdf-canvas-page-${pageNum}`);
+        if (!canvas) return;
+
+        const context = canvas.getContext("2d");
+        canvas.height = viewport.height;
+        canvas.width = viewport.width;
+
+        await page.render({ canvasContext: context, viewport: viewport }).promise;
+      } catch (err) {
+        console.warn(`Render error on page ${pageNum}:`, err);
+      }
+    }
+
+    function jumpToPage(pageNum) {
+      if (!pdfDoc) return;
+      const targetPage = Math.max(1, Math.min(pageNum, pdfDoc.numPages));
+      renderPdfPage(targetPage);
+
+      const targetWrapper = document.getElementById(`pdf-page-wrapper-${targetPage}`);
+      if (targetWrapper) {
+        targetWrapper.scrollIntoView({ behavior: "smooth", block: "start" });
+        currentPhysicalPage = targetPage;
+        document.getElementById("pdf-page-indicator").textContent = `PDF Viewer (Physical Page ${targetPage} of ${pdfDoc.numPages})`;
+        document.getElementById("jump-page-input").value = targetPage;
+      }
+    }
+
+    function changeZoom(delta) {
+      pdfScale = Math.max(0.6, Math.min(2.5, pdfScale + delta));
+      document.getElementById("zoom-label").textContent = `${Math.round(pdfScale * 100)}%`;
+      renderedPages.clear();
+      if (pdfDoc) {
+        for (let i = 1; i <= pdfDoc.numPages; i++) {
+          renderPdfPage(i);
+        }
+      }
+    }
+
+    // Modal Operations
+    function openUploadModal() {
+      document.getElementById("upload-modal").style.display = "flex";
+      document.getElementById("upload-status-msg").textContent = "";
+    }
+
+    function closeUploadModal() {
+      document.getElementById("upload-modal").style.display = "none";
+    }
+
+    async function submitTemplateUpload(event) {
+      event.preventDefault();
+      const fileInput = document.getElementById("modal-file");
+      if (!fileInput.files || !fileInput.files[0]) {
+        alert("Please select a template PDF file.");
+        return;
+      }
+
+      const submitBtn = document.getElementById("modal-submit-btn");
+      const statusMsg = document.getElementById("upload-status-msg");
+      submitBtn.disabled = true;
+      statusMsg.textContent = "⏳ Uploading and extracting AST structure (bounded two-pass Gemini)...";
+
+      const formData = new FormData();
+      formData.append("file", fileInput.files[0]);
+      formData.append("country", document.getElementById("modal-country").value.trim());
+      formData.append("state_province", document.getElementById("modal-state").value.trim());
+      formData.append("energy_technology", document.getElementById("modal-tech").value);
+      formData.append("form_type", document.getElementById("modal-form-type").value);
+      formData.append("vintage_year", document.getElementById("modal-vintage").value.trim());
+      formData.append("revision", document.getElementById("modal-revision").value.trim());
+      const customName = document.getElementById("modal-name").value.trim();
+      if (customName) formData.append("template_name", customName);
+
+      try {
+        const res = await fetch("/api/v1/templates/upload", {
+          method: "POST",
+          body: formData,
+        });
+
+        if (!res.ok) {
+          const err = await res.json();
+          throw new Error(err.detail || "Template upload failed");
+        }
+
+        const bundle = await res.json();
+        statusMsg.textContent = "✅ Template uploaded & AST indexed successfully!";
+        const uploadedId = bundle.metadata ? bundle.metadata.template_id : (bundle.registry_row ? bundle.registry_row.template_id : bundle.template_id);
+        setTimeout(() => {
+          closeUploadModal();
+          submitBtn.disabled = false;
+          loadTemplatesList(uploadedId);
+        }, 800);
+      } catch (err) {
+        console.error("Upload error:", err);
+        statusMsg.textContent = `❌ Error: ${err.message}`;
+        submitBtn.disabled = false;
+      }
+    }
+
+    async function seedSampleTemplates(userPrompt = true) {
+      const seedBtn = document.getElementById("seed-templates-btn");
+      if (seedBtn) {
+        seedBtn.disabled = true;
+        seedBtn.textContent = "🌱 Seeding...";
+      }
+
+      try {
+        const res = await fetch("/api/v1/templates/seed", { method: "POST" });
+        if (!res.ok) {
+          const err = await res.json();
+          throw new Error(err.detail || "Seeding failed");
+        }
+        const data = await res.json();
+        const count = data.seeded_count !== undefined ? data.seeded_count : (data.count || 0);
+        if (userPrompt) {
+          alert(`Seeded ${count} canonical regional templates into Lakehouse!`);
+        }
+        await loadTemplatesList();
+      } catch (err) {
+        console.error("Seeding error:", err);
+        if (userPrompt) alert(`Seeding failed: ${err.message}`);
+      } finally {
+        if (seedBtn) {
+          seedBtn.disabled = false;
+          seedBtn.textContent = "🌱 Seed Sample Forms";
+        }
+      }
+    }
+
+    // Startup
+    document.addEventListener("DOMContentLoaded", () => {
+      initStudioAuth();
+    });
+  </script>
+</body>
+</html>
+

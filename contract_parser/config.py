@@ -7,6 +7,32 @@ import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
+
+def _load_env_file(env_path: Path | None = None) -> None:
+    """Load key-value pairs from .env into os.environ if not already defined."""
+    if env_path is None:
+        env_path = Path(".env")
+    if not env_path.exists():
+        return
+    try:
+        with open(env_path, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith("#"):
+                    continue
+                if "=" in line:
+                    key, val = line.split("=", 1)
+                    key = key.strip()
+                    val = val.strip().strip("\"'")
+                    if key and key not in os.environ:
+                        os.environ[key] = val
+    except Exception:
+        pass
+
+
+_load_env_file()
+
+
 DEFAULT_BQ_DATA_AGENT_URN = (
     "urn:agent:projects-255093976233:projects:255093976233:"
     "locations:us:geminidataanalytics:dataAgents:"
@@ -57,6 +83,8 @@ class PipelineConfig:
     local_data_dir: Path = field(
         default_factory=lambda: Path(os.getenv("LOCAL_DATA_DIR", "./data"))
     )
+    sqlite_db_path: str | Path | None = field(default=None)
+
     use_cloud_storage: bool = field(
         default_factory=lambda: os.getenv("USE_CLOUD_STORAGE", "true").lower()
         in ("true", "1", "yes")
@@ -71,6 +99,9 @@ class PipelineConfig:
     initial_backoff_seconds: float = field(
         default_factory=lambda: float(os.getenv("GEMINI_INITIAL_BACKOFF", "2.0"))
     )
+    retry_backoff_initial: float = field(
+        default_factory=lambda: float(os.getenv("GEMINI_INITIAL_BACKOFF", "2.0"))
+    )
     max_output_tokens: int = field(
         default_factory=lambda: int(os.getenv("GEMINI_MAX_OUTPUT_TOKENS", "65536"))
     )
@@ -78,7 +109,7 @@ class PipelineConfig:
         default_factory=lambda: float(os.getenv("PASS_TIMEOUT_SECONDS", "480.0"))
     )
     auth_enabled: bool = field(
-        default_factory=lambda: os.getenv("AUTH_ENABLED", "true").lower()
+        default_factory=lambda: os.getenv("AUTH_ENABLED", "true").strip().lower()
         in ("true", "1", "yes")
     )
     firebase_api_key: str = field(

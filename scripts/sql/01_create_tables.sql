@@ -174,3 +174,96 @@ CREATE TABLE IF NOT EXISTS `contract_intelligence.dnd_signoffs` (
 )
 PARTITION BY DATE(signed_at)
 CLUSTER BY project_id, document_id;
+
+-- 9. Template Registry (Master Legal Forms Directory)
+CREATE TABLE IF NOT EXISTS `contract_intelligence.template_registry` (
+    template_id STRING NOT NULL,
+    template_name STRING NOT NULL,
+    country STRING NOT NULL,
+    state_province STRING NOT NULL,
+    energy_technology STRING NOT NULL,
+    form_type STRING NOT NULL,
+    vintage_year STRING NOT NULL,
+    revision STRING NOT NULL,
+    gcs_pdf_uri STRING NOT NULL,
+    sha256_hash STRING NOT NULL,
+    page_count INT64 NOT NULL,
+    clause_count INT64 NOT NULL,
+    is_active BOOL NOT NULL,
+    created_by STRING NOT NULL,
+    created_at TIMESTAMP NOT NULL,
+    updated_at TIMESTAMP NOT NULL
+)
+PARTITION BY DATE(created_at)
+CLUSTER BY country, state_province, energy_technology;
+
+-- 10. Template Clauses (Canonical Boilerplate AST Nodes)
+CREATE TABLE IF NOT EXISTS `contract_intelligence.template_clauses` (
+    template_id STRING NOT NULL,
+    node_id STRING NOT NULL,
+    parent_node_id STRING,
+    sibling_order INT64 NOT NULL,
+    document_zone STRING NOT NULL,
+    canonical_path STRING NOT NULL,
+    depth INT64 NOT NULL,
+    clause_label STRING NOT NULL,
+    clause_title STRING,
+    numbering_scheme STRING NOT NULL,
+    verbatim_text STRING NOT NULL,
+    placeholder_variables JSON,
+    page_start INT64 NOT NULL,
+    page_end INT64 NOT NULL,
+    created_at TIMESTAMP NOT NULL
+)
+CLUSTER BY template_id, node_id;
+
+-- 11. Contract Variances (Parent Run & Deviation Scorecard)
+CREATE TABLE IF NOT EXISTS `contract_intelligence.contract_variances` (
+    variance_id STRING NOT NULL,
+    document_id STRING NOT NULL,
+    template_id STRING NOT NULL,
+    binding_mode STRING NOT NULL,
+    affinity_score FLOAT64 NOT NULL,
+    total_template_clauses INT64 NOT NULL,
+    total_contract_clauses INT64 NOT NULL,
+    identical_count INT64 NOT NULL,
+    parameter_only_count INT64 NOT NULL,
+    modified_count INT64 NOT NULL,
+    added_count INT64 NOT NULL,
+    deleted_count INT64 NOT NULL,
+    overall_risk_score FLOAT64 NOT NULL,
+    high_risk_count INT64 NOT NULL,
+    medium_risk_count INT64 NOT NULL,
+    low_risk_count INT64 NOT NULL,
+    template_name STRING,
+    template_version STRING,
+    created_at TIMESTAMP NOT NULL
+)
+PARTITION BY DATE(created_at)
+CLUSTER BY document_id, template_id;
+
+-- 12. Clause Variance Details (Clause-Level Deltas & Redlines)
+CREATE TABLE IF NOT EXISTS `contract_intelligence.clause_variance_details` (
+    detail_id STRING NOT NULL,
+    variance_id STRING NOT NULL,
+    document_id STRING NOT NULL,
+    canonical_path STRING NOT NULL,
+    template_clause_id STRING,
+    contract_clause_id STRING,
+    clause_label STRING NOT NULL,
+    clause_title STRING,
+    variance_type STRING NOT NULL,
+    risk_level STRING NOT NULL,
+    risk_score FLOAT64 NOT NULL,
+    risk_category STRING,
+    risk_rationale STRING,
+    parameter_substitutions JSON,
+    template_text STRING,
+    contract_text STRING,
+    redline_html STRING,
+    page_start INT64,
+    created_at TIMESTAMP NOT NULL
+)
+PARTITION BY DATE(created_at)
+CLUSTER BY document_id, variance_id, canonical_path;
+

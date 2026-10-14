@@ -36,6 +36,10 @@ class UserContext(BaseModel):
     domain: str
     uid: str
 
+    @property
+    def is_admin(self) -> bool:
+        return self.role == UserRole.ADMIN
+
 
 class SlidingWindowRateLimiter:
     """In-memory sliding-window rate limiter tracking requests per IP and email."""
@@ -155,9 +159,22 @@ async def dispatch_email_sign_in_link(
             detail="Access restricted. Only @invenergy.com and @google.com email domains are authorized.",
         )
 
+    if not config.auth_enabled:
+        logger.info("Sign-in link request bypassed: AUTH_ENABLED=false for %s", norm_email)
+        return {
+            "status": "bypassed",
+            "email": norm_email,
+            "message": "Authentication is disabled (AUTH_ENABLED=false). Development bypass is active; login is not required.",
+        }
+
     _global_rate_limiter.check_and_record(client_ip, norm_email)
 
-    if not config.firebase_api_key:
+    is_eval_or_placeholder_key = (
+        not config.firebase_api_key
+        or config.firebase_api_key in ("local-eval-key", "test-key", "mock-key")
+        or config.firebase_api_key.startswith("AIzaSyExample")
+    )
+    if is_eval_or_placeholder_key:
         logger.info(
             "Mock dispatch for %s (no FIREBASE_API_KEY configured in environment). ContinueUrl: %s",
             norm_email,

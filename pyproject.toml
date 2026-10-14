@@ -25,6 +25,7 @@ dependencies = [
     "opentelemetry-instrumentation-fastapi>=0.46b0",
     "opentelemetry-exporter-gcp-trace>=1.7.0",
     "opentelemetry-propagator-gcp>=1.7.0",
+    "pypdf>=6.19.0",
 ]
 
 [project.scripts]

@@ -205,3 +205,98 @@
   * `.env.example`: Comprehensive environment variable configuration template.
   * `README.md`: Customer onboarding guide covering architecture, automated/manual GCP setup, BigQuery Data Analytics Agent configuration, Firebase Auth setup, local testing, Cloud Run deployment, and operational troubleshooting.
 
+## [0.9.2-draft] - 2026-10-11
+- Drafted Change Request `Design/CR10_AUTH_ENABLE_DISABLE_ENHANCEMENT.md` via `/egm-draft` covering the zero-friction customer handover use case.
+- Formalized single-variable control architecture around `AUTH_ENABLED` (boolean, defaulting to `true`), isolating production zero-trust security from local/container customer evaluation modes.
+- Documented backend bypass mechanics in `contract_parser/auth.py` providing deterministic `UserContext(email="dev@invenergy.com", role=UserRole.ADMIN)` without Authorization headers.
+- Documented frontend bootstrap mechanics in `contract_parser/static/index.html` via `/api/v1/auth/config` that suppresses login overlays and mounts the admin workspace without external Firebase Identity Toolkit network calls.
+- Defined turnkey evaluation deployment recipes for Docker, local execution, and hermetic verification test suites (UT-AUTH-1 through IT-AUTH-3).
+
+## [0.9.2] - 2026-10-11
+- Implemented CR-10: Configurable Identity Gateway & Customer Evaluation Handover (`AUTH_ENABLED` toggle).
+- Enhanced `contract_parser/config.py` environment variable parsing to defensively strip and parse boolean truth values (`true`, `1`, `yes`, `t`) for `AUTH_ENABLED`.
+- Updated `contract_parser/auth.py`:
+  * Added `is_admin` helper property to `UserContext` for direct role verification.
+  * Short-circuited `dispatch_email_sign_in_link` in bypass mode (`AUTH_ENABLED=false`) returning `status="bypassed"`.
+  * Preserved full CR-7 zero-trust authentication and sliding-window rate limiting in production mode (`AUTH_ENABLED=true`).
+- Updated `.env.example` with dedicated instructions for customer evaluation and zero-cloud-dependency local runs.
+- Enhanced `README.md` with Sections 8.1 and 8.2 detailing single-command evaluation execution (`AUTH_ENABLED=false`) and Docker evaluation workflows.
+- Added comprehensive unit and integration test suite `tests/test_cr10_auth_toggle.py` covering UT-AUTH-1 through IT-AUTH-4 with 100% pass rate.
+- Added zero-dependency `.env` file loader in `contract_parser/config.py` ensuring environment variables are automatically loaded into `os.environ` upon application startup.
+- Updated `contract_parser/auth.py` to recognize mock/eval API keys and safely route to simulated sign-in dispatch without remote network failures.
+- Expanded `README.md` Section 8 with a Quick Terminal Run guide, direct virtual environment invocation, endpoint verification links, alternative port binding, and inline shell overrides.
+
+## [0.10.0] - 2026-10-13
+- Implemented Change Request CR-9: Regional Template Studio & Canonical AST Registry.
+- Schema & Data Model (`contract_parser/schemas.py`):
+  * Added `FormType` enum classifications covering standard renewable energy land agreements (`LEASE`, `WIND_EASEMENT`, `SOLAR_LEASE`, `SOLAR_EASEMENT`, `STORAGE_EASEMENT`, `PARTICIPATION_EASEMENT`, `LAND_OPTION_PURCHASE`, etc.).
+  * Added `PlaceholderVariable` model with regex tokenization (`$[_____]`, `[Token Name]`) and type inference (`DATE`, `CURRENCY`, `DURATION`, `CAPACITY`, `AREA`, `JURISDICTION`, `TEXT`).
+  * Added `TemplateStructureIndex`, `TemplateArticleSpan`, and `TemplateExhibitSpan` models for bounded Pass 1 structural discovery and signature quarantine.
+  * Added `RawTemplateClause`, `TemplatePassExtraction`, `TemplateRegistryRow`, `TemplateClauseRow`, and `TemplateExtractionBundle` with computed fields and backward-compatible alias normalization (`form_name`, `state`, `technology`, `total_pages`, `clause_id`, `section_number`, `placeholders`, `section_text`).
+  * Defined canonical BigQuery and SQLite column sets `TEMPLATE_REGISTRY_COLUMNS` and `TEMPLATE_CLAUSES_COLUMNS`.
+- Extraction & Assembly Engine (`contract_parser/gemini_parser.py`, `contract_parser/bundle_assembler.py`):
+  * Implemented bounded two-pass AST extraction (`extract_template`, `pass_1_template_structure`, `pass_2_template_clauses`).
+  * Implemented signature block quarantine to strip notary blocks, signature lines, and boilerplate witness attestations while preserving legal exhibits and schedules.
+  * Added bracket variable tokenization and canonical path normalization across Preamble, Recitals, Body articles, and Exhibits (`PREAMBLE`, `RECITALS.A`, `BODY.1.1`, `EXHIBIT_A.1`).
+  * Added deterministic offline fallback extractor ensuring robust execution in test environments without live Gemini API keys.
+- Dual-Tier Persistence & Cold-Start Seeding (`contract_parser/storage.py`):
+  * Added DDL for `template_registry` and `template_clauses` tables in SQLite and BigQuery, and created deduplication views `template_registry_latest` and `template_clauses_latest`.
+  * Implemented `insert_template_bundle`, `get_template_bundle`, `get_template_by_hash`, `list_templates`, and `seed_sample_templates`.
+  * Seeded the 6 canonical Invenergy regional template forms from `samples/Templates/` across Illinois, Michigan, Oklahoma, and US General jurisdictions.
+  * Enforced strict zero-pollution guarantee ensuring template ingestion leaves executed contract tables (`documents`, `clauses`, `special_conditions`) unmutated.
+- REST API & Endpoints (`contract_parser/app.py`):
+  * `POST /api/v1/templates/upload`: Multipart template upload supporting metadata tags, SHA-256 deduplication, and AST extraction.
+  * `GET /api/v1/templates`: Filterable template listing by `state`/`state_province`, `energy_technology`/`technology`, and `form_type`.
+  * `GET /api/v1/templates/{template_id}`: Full canonical AST bundle retrieval.
+  * `GET /api/v1/templates/{template_id}/pdf`: Raw template PDF streaming with inline content disposition.
+  * `POST /api/v1/templates/seed`: Administrative cold-start baseline seeding endpoint.
+  * `GET /template-studio`: Dedicated workbench UI route.
+- Interactive Template Studio UI (`contract_parser/static/template_studio.html`, `contract_parser/static/index.html`):
+  * Developed full-featured standalone Workbench UI with 3-pane layout: Template Repository Browser & Filter, PDF Document Viewer with bounding/page navigation, and Canonical AST Clause & Variable Inspector.
+  * Added template drag-and-drop upload modal and cold-start baseline sample seeding button.
+  * Added top navigation link in `contract_parser/static/index.html` connecting to `/template-studio`.
+- Comprehensive Hermetic Test Suite (`tests/test_cr9_template_studio.py`):
+  * Implemented unit and integration tests covering UT-1 through UT-8 and IT-1 through IT-3 with 100% pass rate.
+## [0.11.0] - 2026-10-13
+- Implemented Change Request CR-11: Contract Variance Engine, Legal Redline Studio & Multi-Tier Risk Scoring System (`Design/CR11_CONTRACT_VARIANCE_ENGINE_AND_LEGAL_REDLINE_STUDIO.md`).
+- Schema & Data Models (`contract_parser/schemas.py`):
+  * Added `VarianceType` (`MATCHED_UNMODIFIED`, `PARAMETER_ONLY`, `MODIFIED`, `ADDED`, `DELETED`) and `VarianceRiskLevel` (`NONE`, `LOW`, `MEDIUM`, `HIGH`) enums.
+  * Added `ContractVarianceRow` and `ClauseVarianceDetailRow` for dual-tier analytics persistence in BigQuery and SQLite.
+  * Added `VarianceSummary`, `ContractVarianceBundle`, `TemplateAffinityCandidate`, and `TemplateAffinityResponse` models.
+  * Enforced robust string/enum deserialization fallbacks and validators on `IngestionStatus`, `HITLStatus`, and `DocumentRegistryRow`.
+- Contract Variance & Redline Engine (`contract_parser/variance_engine.py`):
+  * Implemented two-stage hybrid alignment reconciling section drift via canonical path matching and Jaccard token overlap ($\ge 0.70$) to prevent cascading false positives.
+  * Implemented bracket variable substitution masking (`$[_____]`, `[County]`, `[State]`, etc.) to mark clean fill-ins as `PARAMETER_ONLY` (Risk: `NONE`, 0 redlines).
+  * Implemented word-level Myers diff generating HTML redline markup (`<ins class="diff-ins">` and `<del class="diff-del">`).
+  * Implemented multi-tier legal risk scoring (`NONE`, `LOW`, `MEDIUM`, `HIGH`) with category tags and contextual legal rationales.
+  * Implemented mathematical affinity scoring formulation ($S \in [0.0, 1.0]$) suggesting regional master templates with explainable bonus factors.
+- Dual-Tier Lakehouse Persistence (`contract_parser/storage.py`):
+  * Added DDL and schemas for `contract_variances` and `clause_variance_details` tables in SQLite and BigQuery.
+  * Implemented idempotent persistence via `save_contract_variance` and `get_latest_contract_variance`.
+  * Enforced strict zero-pollution guarantee ensuring `documents`, `clauses`, and master templates remain unmutated.
+- REST API & Endpoints (`contract_parser/app.py`):
+  * `POST /api/v1/contracts/{document_id}/compare`: Triggers variance comparison against auto-matched or specified master template.
+  * `GET /api/v1/contracts/{document_id}/variance`: Retrieves latest variance bundle with clause-level redlines and risk summary.
+  * `GET /api/v1/contracts/{document_id}/variance/templates`: Lists affinity-ranked master template candidates for user selection.
+- Legal Redline Studio UI (`contract_parser/static/index.html`):
+  * Integrated dedicated Redline Studio tab with KPI metrics, template selector, dual-pane side-by-side diff viewer, and clause tree heatmap.
+- Test Suite & Quality Verification (`tests/test_cr11_contract_variance.py`):
+  * Implemented and verified hermetic test suite covering UT-1 through UT-8 and IT-1 through IT-3 with 100% pass rate (11/11 tests passing).
+
+## [0.11.1] - 2026-10-13
+- Fixed navigation and error handling in Legal Redline Studio (`contract_parser/static/index.html`):
+  * Resolved `Server Error (404): Not Found` toast by adding silent 404 suppression to the global client fetch interceptor for cold-start variance queries prior to initial comparison.
+  * Added dedicated `⬅️ Back to Redlines` button in the PDF viewer toolbar allowing seamless return from the physical PDF canvas to the Legal Redline Studio.
+  * Enhanced clause card selection in variance mode to automatically return the right pane to the redline comparison view.
+  * Ensured switching to the Variance tab idempotently activates the redline comparison layout.
+
+## [0.11.2] - 2026-10-13
+- Code Review Remediations & Production Hardening across CR-9, CR-10, and CR-11:
+  * Added BigQuery DDL for `contract_variances` (Table 11) and `clause_variance_details` (Table 12) with date partitioning and clustering to `scripts/sql/01_create_tables.sql`.
+  * Added BigQuery deduplication views `contract_variances_latest` and `clause_variance_details_latest` (`QUALIFY ROW_NUMBER() = 1`) to `scripts/sql/02_create_views.sql`.
+  * Implemented universal `window.fetch` Authorization header interceptor and 45-minute proactive token refresh in `contract_parser/static/template_studio.html` to eliminate 401s in production mode.
+  * Constrained parameter substitution regex in `contract_parser/variance_engine.py` (`r"(\$?[^\[\]\r\n]{1,120}?)"`) to prevent unauthorized legal waivers from being misclassified as parameters.
+  * Replaced static 2024 vintage fallback in `contract_parser/variance_engine.py` with dynamic year extraction and zero-bias scoring when metadata is absent.
+  * Wrapped SQLite variance persistence in `contract_parser/storage.py` inside an atomic transaction (`with conn:`) and optimized batch child insertion with `executemany`.
+  * Added OpenTelemetry `StatusCode.ERROR` and exception recording to `contract_parser/gemini_parser.py` on extraction fallbacks.
+  * Refactored `.diff-ins` and `.diff-del` CSS in `contract_parser/static/index.html` with `white-space: pre-wrap` and removed excessive `!important` flags.

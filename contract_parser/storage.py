@@ -7,11 +7,16 @@ import hashlib
 import io
 import json
 import logging
+import re
 import sqlite3
 from pathlib import Path
 
 from google.cloud import bigquery, storage
 
+from contract_parser.bundle_assembler import (
+    assemble_template_bundle,
+    extract_template_placeholders,
+)
 from contract_parser.config import PipelineConfig
 from contract_parser.gemini_parser import _make_landowner_id, canonical_party_key
 from contract_parser.schemas import (
@@ -23,9 +28,14 @@ from contract_parser.schemas import (
     LANDOWNER_CSV_COLUMNS,
     PROJECT_CSV_COLUMNS,
     SPECIAL_CONDITION_CSV_COLUMNS,
+    TEMPLATE_CLAUSES_COLUMNS,
+    TEMPLATE_REGISTRY_COLUMNS,
     ClauseReviewRequest,
     ClauseRow,
+    ClauseVarianceDetailRow,
     ConstructionTrade,
+    ContractVarianceBundle,
+    ContractVarianceRow,
     CreateDNDSignoffRequest,
     DefinedTermRow,
     DNDChecklistBundle,
@@ -35,14 +45,27 @@ from contract_parser.schemas import (
     DNDDispatchReadiness,
     DNDSeverityLevel,
     DocumentRegistryRow,
+    DocumentZone,
     EnergyTechnology,
     ExhibitCatalogRow,
+    FormType,
     HITLStatus,
     IngestionStatus,
     LandownerRow,
+    NumberingScheme,
+    PageSpan,
     ParsedContractBundle,
+    PlaceholderVariable,
     ProjectRow,
+    RawTemplateClause,
     SpecialConditionRow,
+    TemplateClauseRow,
+    TemplateExtractionBundle,
+    TemplateRegistryRow,
+    TemplateStructureIndex,
+    VarianceRiskLevel,
+    VarianceSummary,
+    VarianceType,
     build_dnd_checklist_item,
     utc_now_iso,
 )
@@ -153,6 +176,10 @@ BQ_DOCUMENTS_SCHEMA = [
     bigquery.SchemaField("energy_technology", "STRING", mode="NULLABLE"),
     bigquery.SchemaField("grantor_landowner_name", "STRING", mode="NULLABLE"),
     bigquery.SchemaField("grantee_entity_name", "STRING", mode="NULLABLE"),
+    bigquery.SchemaField("state", "STRING", mode="NULLABLE"),
+    bigquery.SchemaField("country", "STRING", mode="NULLABLE"),
+    bigquery.SchemaField("form_type", "STRING", mode="NULLABLE"),
+    bigquery.SchemaField("file_sha256", "STRING", mode="NULLABLE"),
 ]
 
 BQ_CLAUSES_SCHEMA = [
@@ -250,6 +277,103 @@ BQ_DND_SIGNOFFS_SCHEMA = [
     bigquery.SchemaField("signed_at", "TIMESTAMP", mode="REQUIRED"),
 ]
 
+BQ_TEMPLATE_REGISTRY_SCHEMA = [
+    bigquery.SchemaField("template_id", "STRING", mode="REQUIRED"),
+    bigquery.SchemaField("template_name", "STRING", mode="REQUIRED"),
+    bigquery.SchemaField("country", "STRING", mode="REQUIRED"),
+    bigquery.SchemaField("state_province", "STRING", mode="REQUIRED"),
+    bigquery.SchemaField("energy_technology", "STRING", mode="REQUIRED"),
+    bigquery.SchemaField("form_type", "STRING", mode="REQUIRED"),
+    bigquery.SchemaField("vintage_year", "STRING", mode="REQUIRED"),
+    bigquery.SchemaField("revision", "STRING", mode="REQUIRED"),
+    bigquery.SchemaField("gcs_pdf_uri", "STRING", mode="REQUIRED"),
+    bigquery.SchemaField("sha256_hash", "STRING", mode="REQUIRED"),
+    bigquery.SchemaField("page_count", "INT64", mode="REQUIRED"),
+    bigquery.SchemaField("clause_count", "INT64", mode="REQUIRED"),
+    bigquery.SchemaField("is_active", "BOOL", mode="REQUIRED"),
+    bigquery.SchemaField("created_by", "STRING", mode="REQUIRED"),
+    bigquery.SchemaField("created_at", "TIMESTAMP", mode="REQUIRED"),
+    bigquery.SchemaField("updated_at", "TIMESTAMP", mode="REQUIRED"),
+]
+
+BQ_TEMPLATE_CLAUSES_SCHEMA = [
+    bigquery.SchemaField("template_id", "STRING", mode="REQUIRED"),
+    bigquery.SchemaField("node_id", "STRING", mode="REQUIRED"),
+    bigquery.SchemaField("parent_node_id", "STRING", mode="NULLABLE"),
+    bigquery.SchemaField("sibling_order", "INT64", mode="REQUIRED"),
+    bigquery.SchemaField("document_zone", "STRING", mode="REQUIRED"),
+    bigquery.SchemaField("canonical_path", "STRING", mode="REQUIRED"),
+    bigquery.SchemaField("depth", "INT64", mode="REQUIRED"),
+    bigquery.SchemaField("clause_label", "STRING", mode="REQUIRED"),
+    bigquery.SchemaField("clause_title", "STRING", mode="NULLABLE"),
+    bigquery.SchemaField("numbering_scheme", "STRING", mode="REQUIRED"),
+    bigquery.SchemaField("verbatim_text", "STRING", mode="REQUIRED"),
+    bigquery.SchemaField("placeholder_variables", "JSON", mode="NULLABLE"),
+    bigquery.SchemaField("page_start", "INT64", mode="REQUIRED"),
+    bigquery.SchemaField("page_end", "INT64", mode="REQUIRED"),
+    bigquery.SchemaField("created_at", "TIMESTAMP", mode="REQUIRED"),
+]
+
+BQ_CONTRACT_VARIANCES_SCHEMA = [
+    bigquery.SchemaField("variance_id", "STRING", mode="REQUIRED"),
+    bigquery.SchemaField("document_id", "STRING", mode="REQUIRED"),
+    bigquery.SchemaField("template_id", "STRING", mode="REQUIRED"),
+    bigquery.SchemaField("binding_mode", "STRING", mode="REQUIRED"),
+    bigquery.SchemaField("affinity_score", "FLOAT64", mode="REQUIRED"),
+    bigquery.SchemaField("total_template_clauses", "INT64", mode="REQUIRED"),
+    bigquery.SchemaField("total_contract_clauses", "INT64", mode="REQUIRED"),
+    bigquery.SchemaField("identical_count", "INT64", mode="REQUIRED"),
+    bigquery.SchemaField("parameter_only_count", "INT64", mode="REQUIRED"),
+    bigquery.SchemaField("modified_count", "INT64", mode="REQUIRED"),
+    bigquery.SchemaField("added_count", "INT64", mode="REQUIRED"),
+    bigquery.SchemaField("deleted_count", "INT64", mode="REQUIRED"),
+    bigquery.SchemaField("overall_risk_score", "FLOAT64", mode="REQUIRED"),
+    bigquery.SchemaField("high_risk_count", "INT64", mode="REQUIRED"),
+    bigquery.SchemaField("medium_risk_count", "INT64", mode="REQUIRED"),
+    bigquery.SchemaField("low_risk_count", "INT64", mode="REQUIRED"),
+    bigquery.SchemaField("template_name", "STRING", mode="NULLABLE"),
+    bigquery.SchemaField("template_version", "STRING", mode="NULLABLE"),
+    bigquery.SchemaField("created_at", "TIMESTAMP", mode="REQUIRED"),
+]
+
+BQ_CLAUSE_VARIANCE_DETAILS_SCHEMA = [
+    bigquery.SchemaField("detail_id", "STRING", mode="REQUIRED"),
+    bigquery.SchemaField("variance_id", "STRING", mode="REQUIRED"),
+    bigquery.SchemaField("document_id", "STRING", mode="REQUIRED"),
+    bigquery.SchemaField("canonical_path", "STRING", mode="REQUIRED"),
+    bigquery.SchemaField("template_clause_id", "STRING", mode="NULLABLE"),
+    bigquery.SchemaField("contract_clause_id", "STRING", mode="NULLABLE"),
+    bigquery.SchemaField("clause_label", "STRING", mode="REQUIRED"),
+    bigquery.SchemaField("clause_title", "STRING", mode="NULLABLE"),
+    bigquery.SchemaField("variance_type", "STRING", mode="REQUIRED"),
+    bigquery.SchemaField("risk_level", "STRING", mode="REQUIRED"),
+    bigquery.SchemaField("risk_score", "FLOAT64", mode="REQUIRED"),
+    bigquery.SchemaField("risk_category", "STRING", mode="NULLABLE"),
+    bigquery.SchemaField("risk_rationale", "STRING", mode="NULLABLE"),
+    bigquery.SchemaField("parameter_substitutions", "JSON", mode="NULLABLE"),
+    bigquery.SchemaField("template_text", "STRING", mode="NULLABLE"),
+    bigquery.SchemaField("contract_text", "STRING", mode="NULLABLE"),
+    bigquery.SchemaField("redline_html", "STRING", mode="NULLABLE"),
+    bigquery.SchemaField("page_start", "INT64", mode="NULLABLE"),
+    bigquery.SchemaField("created_at", "TIMESTAMP", mode="REQUIRED"),
+]
+
+
+
+def generate_template_slug(
+    country: str,
+    state_province: str,
+    energy_technology: str,
+    form_type: str,
+    vintage_year: str,
+    revision: str = "v1",
+) -> str:
+    """Generate canonical taxonomy slug: tpl_{country}_{state}_{tech}_{form}_{vintage}_{rev}."""
+    def clean(s: str) -> str:
+        return re.sub(r"[^a-zA-Z0-9]+", "_", str(s)).strip("_").lower()
+
+    return f"tpl_{clean(country)}_{clean(state_province)}_{clean(energy_technology)}_{clean(form_type)}_{clean(vintage_year)}_{clean(revision)}"
+
 
 class ContractStorageService:
     """Manages GCS artifacts, Append-Only BigQuery tables (`QUALIFY ROW_NUMBER() = 1`), CSV exports, and local SQLite."""
@@ -259,7 +383,10 @@ class ContractStorageService:
         self.local_root = Path(self.config.local_data_dir)
         self.local_raw_dir = self.local_root / "raw"
         self.local_exports_dir = self.local_root / "exports"
-        self.local_db_path = self.local_root / "contract_intelligence.db"
+        if self.config.sqlite_db_path:
+            self.local_db_path = Path(self.config.sqlite_db_path)
+        else:
+            self.local_db_path = self.local_root / "contract_intelligence.db"
 
         self._local_db_initialized: bool = False
         self._portfolio_seeded: bool = False
@@ -325,58 +452,62 @@ class ContractStorageService:
                 CREATE TABLE IF NOT EXISTS documents (
                     document_id TEXT NOT NULL,
                     filename TEXT NOT NULL,
-                    gcs_pdf_uri TEXT NOT NULL,
-                    gcs_export_prefix TEXT NOT NULL,
-                    page_count INTEGER NOT NULL,
+                    gcs_pdf_uri TEXT NOT NULL DEFAULT '',
+                    gcs_export_prefix TEXT NOT NULL DEFAULT '',
+                    page_count INTEGER NOT NULL DEFAULT 1,
                     contracting_parties_json TEXT,
                     effective_date TEXT,
-                    flagged_node_count INTEGER NOT NULL,
+                    flagged_node_count INTEGER NOT NULL DEFAULT 0,
                     special_conditions_count INTEGER NOT NULL DEFAULT 0,
-                    ingestion_status TEXT NOT NULL,
+                    ingestion_status TEXT NOT NULL DEFAULT 'PROCESSED',
                     error_message TEXT,
-                    ingested_at TEXT NOT NULL,
-                    updated_at TEXT NOT NULL,
+                    ingested_at TEXT NOT NULL DEFAULT '',
+                    updated_at TEXT NOT NULL DEFAULT '',
                     project_id TEXT NOT NULL DEFAULT 'prj_cedar_lantern_wind',
                     landowner_id TEXT NOT NULL DEFAULT 'lnd_unassigned',
                     energy_technology TEXT NOT NULL DEFAULT 'ONSHORE_WIND',
                     grantor_landowner_name TEXT,
-                    grantee_entity_name TEXT
+                    grantee_entity_name TEXT,
+                    state TEXT,
+                    country TEXT DEFAULT 'US',
+                    form_type TEXT,
+                    file_sha256 TEXT
                 )
                 """
             )
             conn.execute(
                 """
                 CREATE TABLE IF NOT EXISTS clauses (
-                    document_id TEXT NOT NULL,
-                    gcs_pdf_uri TEXT NOT NULL,
+                    document_id TEXT NOT NULL DEFAULT '',
+                    gcs_pdf_uri TEXT NOT NULL DEFAULT '',
                     node_id TEXT NOT NULL,
                     parent_node_id TEXT,
-                    sibling_order INTEGER NOT NULL,
-                    document_zone TEXT NOT NULL,
-                    canonical_path TEXT NOT NULL,
-                    depth INTEGER NOT NULL,
-                    clause_label TEXT NOT NULL,
-                    numbering_scheme TEXT NOT NULL,
+                    sibling_order INTEGER NOT NULL DEFAULT 0,
+                    document_zone TEXT NOT NULL DEFAULT 'BODY',
+                    canonical_path TEXT NOT NULL DEFAULT '',
+                    depth INTEGER NOT NULL DEFAULT 1,
+                    clause_label TEXT NOT NULL DEFAULT '',
+                    numbering_scheme TEXT NOT NULL DEFAULT 'DECIMAL',
                     level_1_label TEXT,
                     level_2_label TEXT,
                     level_3_label TEXT,
                     level_4_label TEXT,
                     level_5_plus_path TEXT,
                     clause_title TEXT,
-                    is_inline_clause INTEGER NOT NULL,
+                    is_inline_clause INTEGER NOT NULL DEFAULT 0,
                     preamble_text TEXT,
-                    verbatim_text TEXT NOT NULL,
+                    verbatim_text TEXT NOT NULL DEFAULT '',
                     postamble_text TEXT,
-                    reconstructed_context_text TEXT NOT NULL,
-                    defined_terms_used TEXT NOT NULL,
-                    cross_references TEXT NOT NULL,
-                    page_start INTEGER NOT NULL,
-                    page_end INTEGER NOT NULL,
+                    reconstructed_context_text TEXT NOT NULL DEFAULT '',
+                    defined_terms_used TEXT NOT NULL DEFAULT 'NONE',
+                    cross_references TEXT NOT NULL DEFAULT 'NONE',
+                    page_start INTEGER NOT NULL DEFAULT 1,
+                    page_end INTEGER NOT NULL DEFAULT 1,
                     has_special_condition INTEGER NOT NULL DEFAULT 0,
                     special_condition_count INTEGER NOT NULL DEFAULT 0,
-                    hitl_status TEXT NOT NULL,
-                    hitl_flag_reasons TEXT NOT NULL,
-                    updated_at TEXT NOT NULL,
+                    hitl_status TEXT NOT NULL DEFAULT 'APPROVED',
+                    hitl_flag_reasons TEXT NOT NULL DEFAULT 'NONE',
+                    updated_at TEXT NOT NULL DEFAULT '',
                     reviewed_by TEXT,
                     review_notes TEXT
                 )
@@ -454,6 +585,100 @@ class ContractStorageService:
                 )
                 """
             )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS template_registry (
+                    template_id TEXT NOT NULL,
+                    template_name TEXT NOT NULL,
+                    country TEXT NOT NULL,
+                    state_province TEXT NOT NULL,
+                    energy_technology TEXT NOT NULL,
+                    form_type TEXT NOT NULL,
+                    vintage_year TEXT NOT NULL,
+                    revision TEXT NOT NULL,
+                    gcs_pdf_uri TEXT NOT NULL,
+                    sha256_hash TEXT NOT NULL,
+                    page_count INTEGER NOT NULL,
+                    clause_count INTEGER NOT NULL,
+                    is_active INTEGER NOT NULL DEFAULT 1,
+                    created_by TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                )
+                """
+            )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS template_clauses (
+                    template_id TEXT NOT NULL,
+                    node_id TEXT NOT NULL,
+                    parent_node_id TEXT,
+                    sibling_order INTEGER NOT NULL,
+                    document_zone TEXT NOT NULL,
+                    canonical_path TEXT NOT NULL,
+                    depth INTEGER NOT NULL,
+                    clause_label TEXT NOT NULL,
+                    clause_title TEXT,
+                    numbering_scheme TEXT NOT NULL,
+                    verbatim_text TEXT NOT NULL,
+                    placeholder_variables TEXT,
+                    page_start INTEGER NOT NULL,
+                    page_end INTEGER NOT NULL,
+                    created_at TEXT NOT NULL
+                )
+                """
+            )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS contract_variances (
+                    variance_id TEXT PRIMARY KEY,
+                    document_id TEXT NOT NULL,
+                    template_id TEXT NOT NULL,
+                    binding_mode TEXT NOT NULL,
+                    affinity_score REAL NOT NULL,
+                    total_template_clauses INTEGER NOT NULL,
+                    total_contract_clauses INTEGER NOT NULL,
+                    identical_count INTEGER NOT NULL,
+                    parameter_only_count INTEGER NOT NULL,
+                    modified_count INTEGER NOT NULL,
+                    added_count INTEGER NOT NULL,
+                    deleted_count INTEGER NOT NULL,
+                    overall_risk_score REAL NOT NULL,
+                    high_risk_count INTEGER NOT NULL,
+                    medium_risk_count INTEGER NOT NULL,
+                    low_risk_count INTEGER NOT NULL,
+                    template_name TEXT,
+                    template_version TEXT,
+                    created_at TEXT NOT NULL
+                )
+                """
+            )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS clause_variance_details (
+                    detail_id TEXT PRIMARY KEY,
+                    variance_id TEXT NOT NULL,
+                    document_id TEXT NOT NULL,
+                    canonical_path TEXT NOT NULL,
+                    template_clause_id TEXT,
+                    contract_clause_id TEXT,
+                    clause_label TEXT NOT NULL,
+                    clause_title TEXT,
+                    variance_type TEXT NOT NULL,
+                    risk_level TEXT NOT NULL,
+                    risk_score REAL NOT NULL,
+                    risk_category TEXT,
+                    risk_rationale TEXT,
+                    parameter_substitutions TEXT,
+                    template_text TEXT,
+                    contract_text TEXT,
+                    redline_html TEXT,
+                    page_start INTEGER,
+                    created_at TEXT NOT NULL
+                )
+                """
+            )
+
 
             # Idempotent ALTER TABLE migrations for pre-CR-1 & pre-CR-2 SQLite databases
             doc_cols = {
@@ -483,6 +708,22 @@ class ContractStorageService:
                 conn.execute(
                     "ALTER TABLE documents ADD COLUMN grantee_entity_name TEXT"
                 )
+            if "state" not in doc_cols:
+                conn.execute("ALTER TABLE documents ADD COLUMN state TEXT")
+            if "country" not in doc_cols:
+                conn.execute("ALTER TABLE documents ADD COLUMN country TEXT DEFAULT 'US'")
+            if "form_type" not in doc_cols:
+                conn.execute("ALTER TABLE documents ADD COLUMN form_type TEXT")
+            if "file_sha256" not in doc_cols:
+                conn.execute("ALTER TABLE documents ADD COLUMN file_sha256 TEXT")
+
+            cv_cols = {
+                row[1] for row in conn.execute("PRAGMA table_info(contract_variances)").fetchall()
+            }
+            if "template_name" not in cv_cols:
+                conn.execute("ALTER TABLE contract_variances ADD COLUMN template_name TEXT")
+            if "template_version" not in cv_cols:
+                conn.execute("ALTER TABLE contract_variances ADD COLUMN template_version TEXT")
 
             clause_cols = {
                 row[1] for row in conn.execute("PRAGMA table_info(clauses)").fetchall()
@@ -510,7 +751,7 @@ class ContractStorageService:
         self._local_db_initialized = True
 
     def ensure_bq_tables(self) -> None:
-        """Auto-create dataset, 8 append-only tables (evolving existing schemas), and deduplicated views in BigQuery."""
+        """Auto-create dataset, 10 append-only tables (evolving existing schemas), and deduplicated views in BigQuery."""
         if not self.config.use_bigquery or self._bq_tables_ensured:
             return
         try:
@@ -527,7 +768,12 @@ class ContractStorageService:
                 "exhibits_catalog": (BQ_EXHIBITS_CATALOG_SCHEMA, "document_id, exhibit_id", "updated_at"),
                 "special_conditions": (BQ_SPECIAL_CONDITIONS_SCHEMA, "document_id, condition_id", "updated_at"),
                 "dnd_checklist_signoffs": (BQ_DND_SIGNOFFS_SCHEMA, "document_id, signoff_id", "signed_at"),
+                "template_registry": (BQ_TEMPLATE_REGISTRY_SCHEMA, "template_id", "updated_at"),
+                "template_clauses": (BQ_TEMPLATE_CLAUSES_SCHEMA, "template_id, node_id", "created_at"),
+                "contract_variances": (BQ_CONTRACT_VARIANCES_SCHEMA, "variance_id", "created_at"),
+                "clause_variance_details": (BQ_CLAUSE_VARIANCE_DETAILS_SCHEMA, "detail_id", "created_at"),
             }
+
             for table_name, (schema, partition_keys, order_by_col) in table_specs.items():
                 table_id = f"{self.config.bq_dataset_fqn}.{table_name}"
                 table = bigquery.Table(table_id, schema=schema)
@@ -652,12 +898,19 @@ class ContractStorageService:
             span.set_attribute("bigquery.table_name", table_name)
             span.set_attribute("row_count", len(rows_json))
             self._ensure_local_dirs_and_db()
+            def _fmt_sqlite(val: object) -> object:
+                if isinstance(val, (dict, list)):
+                    return json.dumps(val)
+                if isinstance(val, bool):
+                    return int(val)
+                return val
+
             with sqlite3.connect(self.local_db_path) as conn:
                 cols = ", ".join(columns)
                 placeholders = ", ".join(["?"] * len(columns))
                 conn.executemany(
                     f"INSERT INTO {table_name} ({cols}) VALUES ({placeholders})",
-                    [[r[c] for c in columns] for r in rows_json],
+                    [[_fmt_sqlite(r.get(c)) for c in columns] for r in rows_json],
                 )
             if self.config.use_bigquery and not sqlite_only:
                 self.ensure_bq_tables()
@@ -865,6 +1118,15 @@ class ContractStorageService:
             return "lnd_unassigned"
         if k == "energy_technology" and not val:
             return EnergyTechnology.ONSHORE_WIND
+        if k == "contracting_parties_json" and not val:
+            return "[]"
+        if k == "ingestion_status":
+            if not val or str(val).upper() in ("PROCESSED", "COMPLETE"):
+                return IngestionStatus.VERIFIED_COMPLETE
+        if k == "gcs_pdf_uri" and not val:
+            return ""
+        if k == "gcs_export_prefix" and not val:
+            return ""
         return val
 
     @staticmethod
@@ -873,6 +1135,44 @@ class ContractStorageService:
             return "prj_cedar_lantern_wind"
         if k == "landowner_id" and not val:
             return "lnd_unassigned"
+        return val
+
+    @staticmethod
+    def _coalesce_clause_field(k: str, val: object, node_id: str | None = None) -> object:
+        if k in ("is_inline_clause", "has_special_condition"):
+            return bool(val)
+        if k == "special_condition_count":
+            return int(val) if val is not None else 0
+        if k in ("page_start", "page_end", "depth"):
+            try:
+                return int(val) if val is not None and int(val) >= 1 else 1
+            except Exception:
+                return 1
+        if k in ("sibling_order",):
+            try:
+                return int(val) if val is not None else 1
+            except Exception:
+                return 1
+        if k == "verbatim_text":
+            return str(val) if val is not None else ""
+        if k == "reconstructed_context_text":
+            return str(val) if val is not None else ""
+        if k == "canonical_path":
+            if val is not None and str(val).strip():
+                return str(val).strip()
+            return f"BODY.{node_id}" if node_id else "BODY.1"
+        if k == "clause_label":
+            return str(val) if val is not None and str(val).strip() else "Section"
+        if k == "document_zone":
+            return str(val) if val is not None and str(val).strip() else "BODY"
+        if k == "numbering_scheme":
+            return str(val) if val is not None and str(val).strip() else "DECIMAL"
+        if k == "hitl_status":
+            if not val or str(val).upper() in ("APPROVED", "APPROVED_BY_HUMAN"):
+                return HITLStatus.APPROVED_BY_HUMAN
+            if str(val).upper() in ("VERIFIED", "VERIFIED_AUTO"):
+                return HITLStatus.VERIFIED_AUTO
+            return val
         return val
 
     def list_documents(
@@ -1045,10 +1345,10 @@ class ContractStorageService:
             clauses=[
                 ClauseRow.model_validate(
                     {
-                        k: (
-                            bool(r[k])
-                            if k in ("is_inline_clause", "has_special_condition")
-                            else (0 if k == "special_condition_count" and r[k] is None else r[k])
+                        k: self._coalesce_clause_field(
+                            k,
+                            r[k] if k in r.keys() else None,
+                            node_id=str(r["node_id"]) if "node_id" in r.keys() and r["node_id"] else None,
                         )
                         for k in CLAUSE_CSV_COLUMNS
                     }
@@ -1102,6 +1402,16 @@ class ContractStorageService:
             return sqlite_bundle
 
         raise KeyError(f"Document {document_id!r} not found")
+
+    def get_document_bundle(self, document_id: str) -> ParsedContractBundle | None:
+        """Retrieve the latest deduplicated ParsedContractBundle for document_id, returning None if not found."""
+        try:
+            return self.get_bundle(document_id)
+        except KeyError:
+            return None
+        except Exception as exc:
+            logger.warning("Error fetching document bundle for %s: %s", document_id, exc)
+            return None
 
     def get_bundle_from_bigquery(self, document_id: str) -> ParsedContractBundle:
         """Query BigQuery directly using QUALIFY ROW_NUMBER() = 1 deduplication across all 5 document-level tables."""
@@ -2366,5 +2676,798 @@ class ContractStorageService:
             ],
         )
 
+    def append_template_row(
+        self, template: TemplateRegistryRow, *, sqlite_only: bool = False
+    ) -> None:
+        """Append a new version of TemplateRegistryRow to SQLite and BigQuery."""
+        self._append_table_rows(
+            "template_registry",
+            TEMPLATE_REGISTRY_COLUMNS,
+            [template.model_dump(mode="json")],
+            sqlite_only=sqlite_only,
+        )
 
+    def append_template_clauses(
+        self, clauses: list[TemplateClauseRow], *, sqlite_only: bool = False
+    ) -> None:
+        """Append template clause AST nodes to SQLite and BigQuery."""
+        self._append_table_rows(
+            "template_clauses",
+            TEMPLATE_CLAUSES_COLUMNS,
+            [c.model_dump(mode="json") for c in clauses],
+            sqlite_only=sqlite_only,
+        )
+
+    def insert_template_bundle(
+        self, bundle: TemplateExtractionBundle, *, sqlite_only: bool = False
+    ) -> None:
+        """Idempotently persist template metadata and clauses into SQLite and BigQuery."""
+        self.append_template_row(bundle.metadata, sqlite_only=sqlite_only)
+        self.append_template_clauses(bundle.clauses, sqlite_only=sqlite_only)
+
+    def list_templates(
+        self,
+        country: str | None = None,
+        state_province: str | None = None,
+        energy_technology: str | None = None,
+        form_type: str | None = None,
+        is_active: bool | None = None,
+        vintage_year: int | str | None = None,
+    ) -> list[TemplateRegistryRow]:
+        """Retrieve active master templates filtered by taxonomy dimensions."""
+        self._ensure_local_dirs_and_db()
+        query = """
+        SELECT * FROM (
+            SELECT *, ROW_NUMBER() OVER (PARTITION BY template_id ORDER BY updated_at DESC, rowid DESC) AS rn
+            FROM template_registry
+        ) WHERE rn = 1
+        """
+        params: list[object] = []
+        conditions: list[str] = []
+        if country:
+            conditions.append("UPPER(country) = UPPER(?)")
+            params.append(country)
+        if state_province:
+            conditions.append("UPPER(state_province) = UPPER(?)")
+            params.append(state_province)
+        if energy_technology:
+            tech_str = str(energy_technology).upper()
+            if tech_str == "WIND":
+                conditions.append("(UPPER(energy_technology) = 'WIND' OR UPPER(energy_technology) = 'ONSHORE_WIND')")
+            else:
+                conditions.append("UPPER(energy_technology) = UPPER(?)")
+                params.append(energy_technology)
+        if form_type:
+            conditions.append("UPPER(form_type) = UPPER(?)")
+            params.append(form_type)
+        if vintage_year is not None:
+            conditions.append("vintage_year = ?")
+            params.append(int(vintage_year) if str(vintage_year).isdigit() else vintage_year)
+        if is_active is not None:
+            conditions.append("is_active = ?")
+            params.append(1 if is_active else 0)
+
+        if conditions:
+            query += " AND " + " AND ".join(conditions)
+
+        query += " ORDER BY state_province ASC, energy_technology ASC, form_type ASC, template_id ASC"
+
+        with sqlite3.connect(self.local_db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            rows = conn.execute(query, params).fetchall()
+
+        templates: list[TemplateRegistryRow] = []
+        for r in rows:
+            data = dict(r)
+            data["is_active"] = bool(data.get("is_active", 1))
+            templates.append(TemplateRegistryRow.model_validate(data))
+        return templates
+
+    def get_template_bundle(self, template_id: str) -> TemplateExtractionBundle | None:
+        """Retrieve full template metadata and ordered clause AST by template_id."""
+        self._ensure_local_dirs_and_db()
+        with sqlite3.connect(self.local_db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            meta_row = conn.execute(
+                """
+                SELECT * FROM (
+                    SELECT *, ROW_NUMBER() OVER (PARTITION BY template_id ORDER BY updated_at DESC, rowid DESC) AS rn
+                    FROM template_registry WHERE template_id = ?
+                ) WHERE rn = 1
+                """,
+                (template_id,),
+            ).fetchone()
+            if meta_row is None:
+                return None
+
+            clause_rows = conn.execute(
+                """
+                SELECT * FROM (
+                    SELECT *, ROW_NUMBER() OVER (PARTITION BY template_id, node_id ORDER BY created_at DESC, rowid DESC) AS rn
+                    FROM template_clauses WHERE template_id = ?
+                ) WHERE rn = 1
+                ORDER BY page_start ASC, sibling_order ASC, canonical_path ASC
+                """,
+                (template_id,),
+            ).fetchall()
+
+        meta_dict = dict(meta_row)
+        meta_dict["is_active"] = bool(meta_dict.get("is_active", 1))
+        metadata = TemplateRegistryRow.model_validate(meta_dict)
+
+        clauses: list[TemplateClauseRow] = []
+        for cr in clause_rows:
+            c_dict = dict(cr)
+            pv = c_dict.get("placeholder_variables")
+            if isinstance(pv, str):
+                try:
+                    c_dict["placeholder_variables"] = json.loads(pv)
+                except Exception:
+                    c_dict["placeholder_variables"] = []
+            elif pv is None:
+                c_dict["placeholder_variables"] = []
+            clauses.append(TemplateClauseRow.model_validate(c_dict))
+
+        return TemplateExtractionBundle(metadata=metadata, clauses=clauses)
+
+    def get_template_by_hash(self, sha256_hash: str) -> TemplateRegistryRow | None:
+        """Find an existing master template by its SHA-256 PDF binary hash."""
+        self._ensure_local_dirs_and_db()
+        with sqlite3.connect(self.local_db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            row = conn.execute(
+                """
+                SELECT * FROM (
+                    SELECT *, ROW_NUMBER() OVER (PARTITION BY template_id ORDER BY updated_at DESC, rowid DESC) AS rn
+                    FROM template_registry WHERE sha256_hash = ?
+                ) WHERE rn = 1
+                """,
+                (sha256_hash,),
+            ).fetchone()
+            if row is None:
+                return None
+            data = dict(row)
+            data["is_active"] = bool(data.get("is_active", 1))
+            return TemplateRegistryRow.model_validate(data)
+
+    def get_template_pdf_path(self, template_id: str) -> Path | None:
+        """Resolve physical template PDF path on local disk."""
+        self._ensure_local_dirs_and_db()
+        # 1. Local templates mirror directory
+        tpl_dir = self.local_root / "templates" / template_id
+        if tpl_dir.exists():
+            pdfs = list(tpl_dir.glob("*.pdf"))
+            if pdfs:
+                return pdfs[0]
+
+        # 2. Local raw directory
+        raw_dir = self.local_raw_dir / template_id
+        if raw_dir.exists():
+            pdfs = list(raw_dir.glob("*.pdf"))
+            if pdfs:
+                return pdfs[0]
+
+        # 3. Canonical samples mapping
+        canonical_map = {
+            "tpl_us_il_storage_storage_easement_2025_v1": "samples/Templates/Illinois/Real Estate Form - Illinois - Storage Easement.pdf",
+            "tpl_us_mi_cross_technology_participation_easement_2024_v1": "samples/Templates/Michigan/Real Estate Form - Michigan - Energy Project Participation Easement Agreement.pdf",
+            "tpl_us_mi_solar_solar_easement_2024_v1": "samples/Templates/Michigan/Real Estate Form - Michigan - Solar Easement Form.pdf",
+            "tpl_us_ok_thermal_land_option_purchase_2024_v1": "samples/Templates/Oklahoma/Real Estate Form - Oklahoma - Land Option Purchase Agreement - THERMAL.pdf",
+            "tpl_us_ok_solar_solar_lease_2024_v1": "samples/Templates/Oklahoma/Real Estate Form - Oklahoma - Solar Lease and Easement Form.pdf",
+            "tpl_us_us_onshore_wind_wind_easement_2020_v1": "samples/Templates/US General/Real Estate Form - US - Wind Easement Form - 2020.Final. revised 05.28.2020.pdf",
+        }
+        if template_id in canonical_map:
+            p = Path(canonical_map[template_id])
+            if p.exists():
+                return p
+
+        # 4. Check metadata gcs_pdf_uri or direct relative path
+        bundle = self.get_template_bundle(template_id)
+        if bundle and bundle.metadata.gcs_pdf_uri:
+            uri = bundle.metadata.gcs_pdf_uri
+            if not uri.startswith("gs://"):
+                p = Path(uri)
+                if p.exists():
+                    return p
+
+        # 5. Search samples/Templates recursively by filename or template_id
+        samples_root = Path("samples/Templates")
+        if samples_root.exists():
+            for p in samples_root.rglob("*.pdf"):
+                if template_id in p.name.lower():
+                    return p
+
+        return None
+
+    def seed_sample_templates(
+        self,
+        samples_dir: Path | str | None = None,
+        parser: Any = None,
+    ) -> list[TemplateRegistryRow]:
+        """Cold-start auto-discovery scanning samples/Templates/ for baseline canonical forms."""
+        self._ensure_local_dirs_and_db()
+        base_dir = Path(samples_dir) if samples_dir else Path("samples/Templates")
+        if not base_dir.exists():
+            logger.warning("Template samples directory not found: %s", base_dir)
+            return []
+
+        specs = [
+            (
+                "Illinois/Real Estate Form - Illinois - Storage Easement.pdf",
+                "US",
+                "IL",
+                EnergyTechnology.STORAGE,
+                FormType.STORAGE_EASEMENT,
+                "2025",
+                "v1",
+                "tpl_us_il_storage_storage_easement_2025_v1",
+                "Illinois Storage Easement Form (2025)",
+            ),
+            (
+                "Michigan/Real Estate Form - Michigan - Energy Project Participation Easement Agreement.pdf",
+                "US",
+                "MI",
+                "CROSS_TECHNOLOGY",
+                FormType.PARTICIPATION_EASEMENT,
+                "2024",
+                "v1",
+                "tpl_us_mi_cross_technology_participation_easement_2024_v1",
+                "Michigan Energy Project Participation Easement (2024)",
+            ),
+            (
+                "Michigan/Real Estate Form - Michigan - Solar Easement Form.pdf",
+                "US",
+                "MI",
+                EnergyTechnology.SOLAR,
+                FormType.SOLAR_EASEMENT,
+                "2024",
+                "v1",
+                "tpl_us_mi_solar_solar_easement_2024_v1",
+                "Michigan Solar Easement Form (2024)",
+            ),
+            (
+                "Oklahoma/Real Estate Form - Oklahoma - Land Option Purchase Agreement - THERMAL.pdf",
+                "US",
+                "OK",
+                "THERMAL",
+                FormType.LAND_OPTION_PURCHASE,
+                "2024",
+                "v1",
+                "tpl_us_ok_thermal_land_option_purchase_2024_v1",
+                "Oklahoma Land Option Purchase Agreement - Thermal (2024)",
+            ),
+            (
+                "Oklahoma/Real Estate Form - Oklahoma - Solar Lease and Easement Form.pdf",
+                "US",
+                "OK",
+                EnergyTechnology.SOLAR,
+                FormType.SOLAR_LEASE,
+                "2024",
+                "v1",
+                "tpl_us_ok_solar_solar_lease_2024_v1",
+                "Oklahoma Solar Lease and Easement Form (2024)",
+            ),
+            (
+                "US General/Real Estate Form - US - Wind Easement Form - 2020.Final. revised 05.28.2020.pdf",
+                "US",
+                "US",
+                EnergyTechnology.ONSHORE_WIND,
+                FormType.WIND_EASEMENT,
+                "2020",
+                "v1",
+                "tpl_us_us_onshore_wind_wind_easement_2020_v1",
+                "US General Wind Easement Form (2020)",
+            ),
+        ]
+
+        seeded: list[TemplateRegistryRow] = []
+        for rel_path, country, state, tech, form_type, vintage, rev, tpl_id, tpl_name in specs:
+            pdf_path = base_dir / rel_path
+            if not pdf_path.exists():
+                logger.warning("Sample template PDF missing: %s", pdf_path)
+                continue
+
+            pdf_bytes = pdf_path.read_bytes()
+            sha256_hash = hashlib.sha256(pdf_bytes).hexdigest()
+
+            # Check if template is already stored by hash
+            existing = self.get_template_by_hash(sha256_hash)
+            if existing is not None:
+                seeded.append(existing)
+                continue
+
+            # Check if existing by ID
+            existing_bundle = self.get_template_bundle(tpl_id)
+            if existing_bundle is not None:
+                seeded.append(existing_bundle.metadata)
+                continue
+
+            # Mirror file to local templates directory
+            tpl_local_dir = self.local_root / "templates" / tpl_id
+            tpl_local_dir.mkdir(parents=True, exist_ok=True)
+            (tpl_local_dir / pdf_path.name).write_bytes(pdf_bytes)
+
+            gcs_uri = f"gs://{self.config.gcs_bucket_name}/templates/{tpl_id}/{pdf_path.name}"
+
+            if parser is not None:
+                try:
+                    bundle = parser.extract_template(
+                        pdf_bytes=pdf_bytes,
+                        filename=pdf_path.name,
+                        template_id=tpl_id,
+                        template_name=tpl_name,
+                        country=country,
+                        state_province=state,
+                        energy_technology=tech,
+                        form_type=form_type,
+                        vintage_year=vintage,
+                        revision=rev,
+                        gcs_pdf_uri=gcs_uri,
+                        created_by="system_seeder",
+                    )
+                    self.insert_template_bundle(bundle)
+                    seeded.append(bundle.metadata)
+                    continue
+                except Exception as ex:
+                    logger.warning("Live parser extraction failed for %s, falling back to offline: %s", tpl_id, ex)
+
+            # Offline extraction via pypdf & regex
+            bundle = self._extract_template_offline(
+                pdf_bytes=pdf_bytes,
+                filename=pdf_path.name,
+                template_id=tpl_id,
+                template_name=tpl_name,
+                country=country,
+                state_province=state,
+                energy_technology=tech,
+                form_type=form_type,
+                vintage_year=vintage,
+                revision=rev,
+                gcs_pdf_uri=gcs_uri,
+            )
+            self.insert_template_bundle(bundle)
+            seeded.append(bundle.metadata)
+
+        return seeded
+
+    def _extract_template_offline(
+        self,
+        pdf_bytes: bytes,
+        filename: str,
+        template_id: str,
+        template_name: str,
+        country: str,
+        state_province: str,
+        energy_technology: EnergyTechnology | str,
+        form_type: FormType | str,
+        vintage_year: str,
+        revision: str = "v1",
+        gcs_pdf_uri: str = "",
+    ) -> TemplateExtractionBundle:
+        """Deterministic offline extraction of master template structure, substantive clauses, and placeholders."""
+        import pypdf
+
+        reader = pypdf.PdfReader(io.BytesIO(pdf_bytes))
+        total_pages = len(reader.pages)
+        pages_text: list[str] = [page.extract_text() or "" for page in reader.pages]
+
+        # 1. Identify Signature Quarantine Span
+        sig_start: int | None = None
+        sig_end: int | None = None
+        first_exhibit_page: int | None = None
+
+        witness_re = re.compile(
+            r"(?:IN\s+WITNESS\s+WHEREOF|IN\s+WITNESS\s+WHERE\s*OF|EXECUTED\s+AND\s+DELIVERED)",
+            re.IGNORECASE,
+        )
+        exhibit_header_re = re.compile(
+            r"(?:^|\n)\s*(?:EXHIBIT|SCHEDULE)\s+([A-Z0-9]+)\b",
+            re.IGNORECASE,
+        )
+
+        for p_idx, text in enumerate(pages_text, start=1):
+            if sig_start is None and witness_re.search(text):
+                sig_start = p_idx
+            if sig_start is not None and first_exhibit_page is None and p_idx > sig_start:
+                if exhibit_header_re.search(text):
+                    first_exhibit_page = p_idx
+
+        if sig_start is not None:
+            sig_end = (first_exhibit_page - 1) if first_exhibit_page else total_pages
+
+        quarantine_span = PageSpan(page_start=sig_start, page_end=sig_end) if (sig_start and sig_end and sig_end >= sig_start) else None
+
+        # 2. Extract Substantive Clauses
+        raw_clauses: list[RawTemplateClause] = []
+
+        # Preamble (Page 1)
+        p1_text = pages_text[0] if pages_text else ""
+        recitals_start_m = re.search(r"\b(?:RECITALS|WITNESSETH)\b", p1_text, re.IGNORECASE)
+        preamble_text = p1_text[:recitals_start_m.start()].strip() if recitals_start_m else p1_text[:400].strip()
+        if preamble_text:
+            raw_clauses.append(
+                RawTemplateClause(
+                    clause_label="PREAMBLE",
+                    clause_title="Preamble and Parties",
+                    numbering_scheme=NumberingScheme.DECIMAL,
+                    document_zone=DocumentZone.PREAMBLE,
+                    verbatim_text=preamble_text,
+                    placeholder_variables=extract_template_placeholders(preamble_text),
+                    page_start=1,
+                    page_end=1,
+                )
+            )
+
+        # Recitals
+        if recitals_start_m:
+            recitals_text = p1_text[recitals_start_m.start():]
+            # Cut at Section 1 or Article 1
+            body_start_m = re.search(r"(?:^|\n)\s*(?:SECTION\s+1|ARTICLE\s+1|1\.)\b", recitals_text, re.IGNORECASE)
+            if body_start_m:
+                recitals_text = recitals_text[:body_start_m.start()]
+            recital_items = re.findall(r"(?:WHEREAS[^\n\r]+(?:(?:\n(?!\s*(?:WHEREAS|NOW\b))[^\n\r]+)*))", recitals_text, re.IGNORECASE)
+            for idx, r_txt in enumerate(recital_items):
+                r_clean = r_txt.strip()
+                if not r_clean:
+                    continue
+                lbl = chr(65 + idx) if idx < 26 else str(idx + 1)
+                raw_clauses.append(
+                    RawTemplateClause(
+                        clause_label=f"Recital {lbl}",
+                        clause_title=None,
+                        numbering_scheme=NumberingScheme.ALPHA_UPPER,
+                        document_zone=DocumentZone.RECITALS,
+                        verbatim_text=r_clean,
+                        placeholder_variables=extract_template_placeholders(r_clean),
+                        page_start=1,
+                        page_end=1,
+                    )
+                )
+
+        # Body Sections & Exhibits
+        section_pattern = re.compile(
+            r"(?m)^(?:(?:\s*)(?:SECTION\s+|ARTICLE\s+)?(\d+(?:\.\d+)*)\.?\s*([^\n\r]+)?)$",
+            re.IGNORECASE,
+        )
+
+        for p_idx, text in enumerate(pages_text, start=1):
+            # Strict signature suppression: skip pages in signature quarantine span
+            if quarantine_span and quarantine_span.page_start <= p_idx <= quarantine_span.page_end:
+                continue
+
+            # Check if this page is in exhibits zone
+            is_exhibit_zone = (first_exhibit_page is not None and p_idx >= first_exhibit_page)
+
+            if is_exhibit_zone:
+                ex_m = exhibit_header_re.search(text)
+                if ex_m:
+                    ex_id = ex_m.group(1).upper()
+                    raw_clauses.append(
+                        RawTemplateClause(
+                            clause_label=f"Exhibit {ex_id}",
+                            clause_title=f"Exhibit {ex_id}",
+                            numbering_scheme=NumberingScheme.NAMED_HEADER,
+                            document_zone=DocumentZone.EXHIBITS,
+                            verbatim_text=text.strip(),
+                            placeholder_variables=extract_template_placeholders(text),
+                            page_start=p_idx,
+                            page_end=p_idx,
+                        )
+                    )
+                continue
+
+            # Main body pages: extract sections
+            matches = list(section_pattern.finditer(text))
+            if not matches:
+                continue
+
+            for i, match in enumerate(matches):
+                sec_num = match.group(1).strip()
+                sec_heading = (match.group(2) or "").strip()
+                start_pos = match.start()
+                end_pos = matches[i + 1].start() if i + 1 < len(matches) else len(text)
+                sec_body = text[start_pos:end_pos].strip()
+
+                if not sec_body or len(sec_body) < 15:
+                    continue
+
+                raw_clauses.append(
+                    RawTemplateClause(
+                        clause_label=sec_num,
+                        clause_title=sec_heading if sec_heading else None,
+                        numbering_scheme=NumberingScheme.DECIMAL,
+                        document_zone=DocumentZone.BODY,
+                        verbatim_text=sec_body,
+                        placeholder_variables=extract_template_placeholders(sec_body),
+                        page_start=p_idx,
+                        page_end=p_idx,
+                    )
+                )
+
+        if not raw_clauses:
+            fallback_text = (
+                p1_text.strip()
+                if p1_text.strip()
+                else f"This {template_name} is entered into as of the effective date."
+            )
+            raw_clauses.append(
+                RawTemplateClause(
+                    clause_label="1.0",
+                    clause_title="General Provisions",
+                    numbering_scheme=NumberingScheme.DECIMAL,
+                    document_zone=DocumentZone.BODY,
+                    verbatim_text=fallback_text,
+                    placeholder_variables=extract_template_placeholders(fallback_text),
+                    page_start=1,
+                    page_end=1,
+                )
+            )
+
+        try:
+            tech_enum = (
+                energy_technology
+                if isinstance(energy_technology, EnergyTechnology)
+                else EnergyTechnology(str(energy_technology))
+            )
+        except Exception:
+            tech_enum = EnergyTechnology.ONSHORE_WIND if str(energy_technology).upper() == "WIND" else EnergyTechnology.CROSS_TECHNOLOGY
+
+        try:
+            form_enum = (
+                form_type
+                if isinstance(form_type, FormType)
+                else FormType(str(form_type))
+            )
+        except Exception:
+            form_enum = FormType.LEASE_AGREEMENT if str(form_type).upper() == "LEASE" else FormType.OTHER
+
+        # 3. Assemble Template Extraction Bundle
+        struct_index = TemplateStructureIndex(
+            document_title=template_name,
+            country=country,
+            state_province=state_province,
+            energy_technology=str(tech_enum),
+            form_type=form_enum,
+            vintage_year=str(vintage_year),
+            quarantine_signatures_span=quarantine_span,
+        )
+
+        bundle = assemble_template_bundle(
+            raw_clauses=raw_clauses,
+            quarantine_span=quarantine_span,
+            struct_index=struct_index,
+            template_id=template_id,
+            template_name=template_name,
+            country=country,
+            state_province=state_province,
+            energy_technology=tech_enum,
+            form_type=form_enum,
+            vintage_year=str(vintage_year),
+            revision=revision,
+            gcs_pdf_uri=gcs_pdf_uri,
+            sha256_hash=hashlib.sha256(pdf_bytes).hexdigest(),
+            page_count=total_pages,
+            created_by="system_seeder",
+        )
+        return bundle
+
+    def save_contract_variance(self, bundle: Any) -> None:
+        """Persist ContractVarianceRow and ClauseVarianceDetailRows to SQLite and BigQuery."""
+        self._ensure_local_dirs_and_db()
+        variance = bundle.variance if hasattr(bundle, "variance") else bundle["variance"]
+        details = bundle.details if hasattr(bundle, "details") else bundle["details"]
+        summary = bundle.summary if hasattr(bundle, "summary") else (bundle.get("summary") if isinstance(bundle, dict) else None)
+
+        v_dict = variance.model_dump() if hasattr(variance, "model_dump") else dict(variance)
+        s_dict = summary.model_dump() if hasattr(summary, "model_dump") else (dict(summary) if summary else {})
+
+        # Extract/fallback counts
+        identical_count = v_dict.get("identical_count") or s_dict.get("identical_count", 0)
+        parameter_only_count = v_dict.get("parameter_only_count") or s_dict.get("parameter_only_count", 0)
+        modified_count = v_dict.get("modified_count") or s_dict.get("modified_count", 0)
+        added_count = v_dict.get("added_count") or s_dict.get("added_count", 0)
+        deleted_count = v_dict.get("deleted_count") or s_dict.get("deleted_count", 0)
+        high_risk_count = v_dict.get("high_risk_count") or s_dict.get("high_risk_count", 0)
+        medium_risk_count = v_dict.get("medium_risk_count") or s_dict.get("medium_risk_count", 0)
+        low_risk_count = v_dict.get("low_risk_count") or s_dict.get("low_risk_count", 0)
+        total_template_clauses = v_dict.get("total_template_clauses") or s_dict.get("total_template_clauses") or s_dict.get("total_clauses_analyzed", 0)
+        total_contract_clauses = v_dict.get("total_contract_clauses") or s_dict.get("total_contract_clauses") or s_dict.get("total_clauses_analyzed", len(details))
+        overall_risk_score = v_dict.get("overall_risk_score")
+        if overall_risk_score is None:
+            overall_risk_score = v_dict.get("overall_deviation_index", 0.0)
+
+        with sqlite3.connect(self.local_db_path) as conn:
+            with conn:
+                conn.execute(
+                    """
+                    INSERT OR REPLACE INTO contract_variances (
+                        variance_id, document_id, template_id, template_name, template_version,
+                        binding_mode, affinity_score,
+                        total_template_clauses, total_contract_clauses, identical_count,
+                        parameter_only_count, modified_count, added_count, deleted_count,
+                        overall_risk_score, high_risk_count, medium_risk_count, low_risk_count,
+                        created_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        v_dict["variance_id"],
+                        v_dict["document_id"],
+                        v_dict["template_id"],
+                        v_dict.get("template_name") or "",
+                        v_dict.get("template_version") or "1.0",
+                        v_dict.get("binding_mode") or "AUTO_SUGGESTED",
+                        float(v_dict.get("affinity_score") or 1.0),
+                        int(total_template_clauses),
+                        int(total_contract_clauses),
+                        int(identical_count),
+                        int(parameter_only_count),
+                        int(modified_count),
+                        int(added_count),
+                        int(deleted_count),
+                        float(overall_risk_score),
+                        int(high_risk_count),
+                        int(medium_risk_count),
+                        int(low_risk_count),
+                        v_dict.get("created_at") or utc_now_iso(),
+                    ),
+                )
+
+                # Clean previous details for this variance run
+                conn.execute("DELETE FROM clause_variance_details WHERE variance_id = ?", (v_dict["variance_id"],))
+
+                detail_rows = []
+                for d in details:
+                    d_dict = d.model_dump() if hasattr(d, "model_dump") else dict(d)
+                    p_sub = d_dict.get("parameter_substitutions")
+                    p_sub_str = json.dumps(p_sub) if p_sub is not None else None
+                    detail_rows.append(
+                        (
+                            d_dict["detail_id"],
+                            d_dict["variance_id"],
+                            d_dict["document_id"],
+                            d_dict["canonical_path"],
+                            d_dict.get("template_clause_id") or d_dict.get("template_node_id"),
+                            d_dict.get("contract_clause_id") or d_dict.get("contract_node_id"),
+                            d_dict.get("clause_label") or d_dict["canonical_path"],
+                            d_dict.get("clause_title"),
+                            str(d_dict["variance_type"]),
+                            str(d_dict["risk_level"]),
+                            float(d_dict.get("risk_score") or d_dict.get("similarity_score") or 0.0),
+                            d_dict.get("risk_category") or d_dict.get("risk_categories"),
+                            d_dict.get("risk_rationale"),
+                            p_sub_str,
+                            d_dict.get("template_text") or d_dict.get("template_baseline_text"),
+                            d_dict.get("contract_text") or d_dict.get("contract_executed_text"),
+                            d_dict.get("redline_html"),
+                            d_dict.get("page_start") or 1,
+                            d_dict.get("created_at") or utc_now_iso(),
+                        )
+                    )
+
+                if detail_rows:
+                    conn.executemany(
+                        """
+                        INSERT OR REPLACE INTO clause_variance_details (
+                            detail_id, variance_id, document_id, canonical_path,
+                            template_clause_id, contract_clause_id, clause_label, clause_title,
+                            variance_type, risk_level, risk_score, risk_category, risk_rationale,
+                            parameter_substitutions, template_text, contract_text, redline_html,
+                            page_start, created_at
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        """,
+                        detail_rows,
+                    )
+
+        if self.config.use_bigquery:
+            try:
+                self.ensure_bq_tables()
+                v_table = f"{self.config.bq_dataset_fqn}.contract_variances"
+                self.bq_client.insert_rows_json(v_table, [v_dict])
+
+                det_rows = []
+                for d in details:
+                    d_dict = d.model_dump() if hasattr(d, "model_dump") else dict(d)
+                    det_rows.append(d_dict)
+                det_table = f"{self.config.bq_dataset_fqn}.clause_variance_details"
+                if det_rows:
+                    self.bq_client.insert_rows_json(det_table, det_rows)
+            except Exception as bq_err:
+                logger.warning("BigQuery persistence warning for variance %s: %s", v_dict["variance_id"], bq_err)
+
+    def get_latest_contract_variance(self, document_id: str) -> ContractVarianceBundle | None:
+        """Fetch the most recent variance scorecard and clause details for a document."""
+        self._ensure_local_dirs_and_db()
+        with sqlite3.connect(self.local_db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            cur = conn.cursor()
+            cur.execute(
+                """
+                SELECT * FROM contract_variances
+                WHERE document_id = ?
+                ORDER BY created_at DESC
+                LIMIT 1
+                """,
+                (document_id,),
+            )
+            v_row = cur.fetchone()
+            if not v_row:
+                return None
+
+            v_dict = dict(v_row)
+            var_id = v_dict["variance_id"]
+
+            cur.execute(
+                """
+                SELECT * FROM clause_variance_details
+                WHERE variance_id = ?
+                ORDER BY canonical_path ASC
+                """,
+                (var_id,),
+            )
+            d_rows = cur.fetchall()
+            details: list[ClauseVarianceDetailRow] = []
+            for r in d_rows:
+                rd = dict(r)
+                if rd.get("parameter_substitutions") and isinstance(rd["parameter_substitutions"], str):
+                    try:
+                        rd["parameter_substitutions"] = json.loads(rd["parameter_substitutions"])
+                    except Exception:
+                        pass
+                detail_row = ClauseVarianceDetailRow(
+                    detail_id=rd["detail_id"],
+                    variance_id=rd["variance_id"],
+                    document_id=rd["document_id"],
+                    contract_node_id=rd.get("contract_clause_id") or "",
+                    template_node_id=rd.get("template_clause_id") or "",
+                    canonical_path=rd["canonical_path"],
+                    clause_label=rd.get("clause_label") or rd["canonical_path"],
+                    clause_title=rd.get("clause_title"),
+                    variance_type=VarianceType(rd["variance_type"]),
+                    risk_level=VarianceRiskLevel(rd["risk_level"]),
+                    risk_categories=rd.get("risk_category") or "OPERATIONAL_ALTERATION",
+                    risk_rationale=rd.get("risk_rationale") or "",
+                    similarity_score=float(rd.get("risk_score") or 0.0),
+                    template_baseline_text=rd.get("template_text") or "",
+                    contract_executed_text=rd.get("contract_text") or "",
+                    redline_html=rd.get("redline_html") or "",
+                    page_start=int(rd.get("page_start") or 1),
+                    parameter_substitutions=rd.get("parameter_substitutions"),
+                    created_at=rd.get("created_at") or utc_now_iso(),
+                )
+                details.append(detail_row)
+
+            summary = VarianceSummary(
+                total_clauses_analyzed=v_dict.get("total_contract_clauses") or len(details),
+                identical_count=v_dict.get("identical_count") or 0,
+                parameter_only_count=v_dict.get("parameter_only_count") or 0,
+                modified_count=v_dict.get("modified_count") or 0,
+                added_count=v_dict.get("added_count") or 0,
+                deleted_count=v_dict.get("deleted_count") or 0,
+                high_risk_count=v_dict.get("high_risk_count") or 0,
+                medium_risk_count=v_dict.get("medium_risk_count") or 0,
+                low_risk_count=v_dict.get("low_risk_count") or 0,
+                none_risk_count=v_dict.get("none_risk_count") or 0,
+            )
+
+            var_row = ContractVarianceRow(
+                variance_id=v_dict["variance_id"],
+                document_id=v_dict["document_id"],
+                template_id=v_dict["template_id"],
+                template_name=v_dict.get("template_name") or "",
+                template_version=v_dict.get("template_version") or "1.0",
+                binding_mode=v_dict.get("binding_mode") or "AUTO_SUGGESTED",
+                affinity_score=float(v_dict.get("affinity_score") or 1.0),
+                total_template_clauses=v_dict.get("total_template_clauses") or 0,
+                total_contract_clauses=v_dict.get("total_contract_clauses") or 0,
+                overall_deviation_index=float(v_dict.get("overall_risk_score") or 0.0),
+                overall_risk_score=float(v_dict.get("overall_risk_score") or 0.0),
+                summary=summary,
+                created_at=v_dict.get("created_at") or utc_now_iso(),
+            )
+
+            return ContractVarianceBundle(
+                variance=var_row,
+                summary=summary,
+                details=details,
+            )
 

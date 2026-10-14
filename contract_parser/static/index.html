@@ -785,6 +785,155 @@
       box-shadow: var(--shadow-card);
     }
 
+    /* CR-11 Contract Variance Engine & Legal Redline Studio Styles */
+    .diff-ins {
+      background-color: #DCFCE7;
+      color: #166534;
+      text-decoration: underline;
+      text-decoration-color: #15803D;
+      font-weight: 600;
+      border-radius: 2px;
+      padding: 1px 3px;
+      white-space: pre-wrap;
+    }
+    .diff-del {
+      background-color: #FEE2E2;
+      color: #991B1B;
+      text-decoration: line-through;
+      text-decoration-color: #B91C1C;
+      font-weight: 500;
+      border-radius: 2px;
+      padding: 1px 3px;
+      white-space: pre-wrap;
+    }
+    .variance-toolbar-card {
+      background: var(--neutrals-white);
+      border: 1px solid var(--neutrals-sage-green);
+      border-radius: var(--radius-lg);
+      padding: 12px 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      box-shadow: var(--shadow-card);
+    }
+    .variance-kpi-bar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+      padding: 8px 12px;
+      background: var(--neutrals-mint-wash);
+      border-radius: var(--radius-md);
+      border: 1px solid var(--neutrals-sage-green);
+    }
+    .variance-kpi-pill {
+      font-size: 11.5px;
+      font-weight: 700;
+      padding: 3px 8px;
+      border-radius: 999px;
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+    }
+    .variance-gauge {
+      font-size: 13.5px;
+      font-weight: 800;
+      color: var(--brand-dark-green);
+      letter-spacing: -0.01em;
+      margin-right: 6px;
+    }
+    .risk-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      display: inline-block;
+      flex-shrink: 0;
+    }
+    .risk-dot-HIGH { background: #DC2626; box-shadow: 0 0 0 2px rgba(220, 38, 38, 0.2); }
+    .risk-dot-MEDIUM { background: #D97706; box-shadow: 0 0 0 2px rgba(217, 119, 6, 0.2); }
+    .risk-dot-LOW { background: #2563EB; box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.2); }
+    .risk-dot-NONE { background: #16A34A; }
+    .risk-dot-PARAM { background: #0284C7; }
+
+    .risk-badge-HIGH { background: #FEE2E2; color: #991B1B; border: 1px solid #FCA5A5; font-weight: 700; }
+    .risk-badge-MEDIUM { background: #FEF3C7; color: #92400E; border: 1px solid #FCD34D; font-weight: 700; }
+    .risk-badge-LOW { background: #EFF6FF; color: #1E40AF; border: 1px solid #BFDBFE; font-weight: 600; }
+    .risk-badge-NONE { background: #DCFCE7; color: #166534; border: 1px solid #86EFAC; font-weight: 600; }
+
+    .vtype-badge {
+      font-family: var(--font-mono);
+      font-size: 10.5px;
+      font-weight: 700;
+      padding: 2px 6px;
+      border-radius: var(--radius-sm);
+    }
+    .vtype-IDENTICAL { background: #DCFCE7; color: #166534; }
+    .vtype-PARAMETER_ONLY { background: #E0F2FE; color: #0369A1; }
+    .vtype-MODIFIED { background: #FEF3C7; color: #92400E; }
+    .vtype-ADDED { background: #F3E8FF; color: #6B21A8; }
+    .vtype-DELETED { background: #FEE2E2; color: #991B1B; }
+
+    .variance-inspector-header {
+      padding: 12px 16px;
+      background: var(--neutrals-light-green);
+      border-bottom: 1px solid var(--neutrals-sage-green);
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .variance-risk-alert {
+      padding: 8px 12px;
+      border-radius: var(--radius-sm);
+      font-size: 12.5px;
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .variance-risk-alert-HIGH { background: #FEF2F2; color: #991B1B; border-left: 4px solid #DC2626; }
+    .variance-risk-alert-MEDIUM { background: #FFFBEB; color: #92400E; border-left: 4px solid #D97706; }
+    .variance-risk-alert-LOW { background: #EFF6FF; color: #1E40AF; border-left: 4px solid #3B82F6; }
+    .variance-risk-alert-NONE { background: #F0FDF4; color: #166534; border-left: 4px solid #16A34A; }
+
+    .variance-dual-pane-stage {
+      flex: 1;
+      display: grid;
+      grid-template-columns: 50% 50%;
+      overflow: hidden;
+    }
+    .variance-column {
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      border-right: 1px solid var(--neutrals-sage-green);
+    }
+    .variance-column:last-child {
+      border-right: none;
+    }
+    .variance-col-title {
+      padding: 8px 14px;
+      font-size: 11.5px;
+      font-weight: 700;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      background: var(--neutrals-mint-wash);
+      border-bottom: 1px solid var(--neutrals-sage-green);
+      color: var(--brand-dark-green);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .variance-col-body {
+      flex: 1;
+      overflow-y: auto;
+      padding: 16px 18px;
+      font-size: 13.5px;
+      line-height: 1.65;
+      color: var(--neutrals-black);
+      white-space: pre-wrap;
+      font-family: inherit;
+    }
+
     /* CR-4 BigQuery Conversational Analytics Data Agent Floating Chat UI */
     .bq-agent-fab {
       position: fixed;
@@ -1478,6 +1627,7 @@
       <span class="brand-title"><img src="/favicon-32x32.png" width="20" height="20" alt="Invenergy Icon" style="vertical-align: -3px; margin-right: 8px; border-radius: 4px; display: inline-block;" />Portfolio Contract Intelligence</span>
     </div>
     <div class="toolbar">
+      <a href="/template-studio" target="_blank" class="template-studio-btn" style="text-decoration:none; display:inline-flex; align-items:center; gap:5px; background:var(--brand-canopy-green); color:#ffffff; border:1px solid rgba(255,207,11,0.6); padding:5px 11px; border-radius:var(--radius-sm); font-size:12px; font-weight:700;" title="Open Regional Template Studio & Canonical AST Registry">🏛️ Template Studio ↗</a>
       <select id="upload-project-selector" title="Select Target ERP Project before uploading PDF"></select>
       <button onclick="openNewProjectModal()" title="Register a new Oracle ERP project">+ New ERP Project</button>
       <input type="file" id="pdf-upload-input" accept=".pdf" />
@@ -1532,6 +1682,7 @@
       <div class="tabs">
         <div class="tab-buttons">
           <button class="tab-btn active" id="tab-all" onclick="setTab('all')">Clause Hierarchy</button>
+          <button class="tab-btn" id="tab-variance" onclick="setTab('variance')">⚖️ Variance &amp; Redlines</button>
           <button class="tab-btn" id="tab-flagged" onclick="setTab('flagged')">HITL Review Queue</button>
           <button class="tab-btn" id="tab-constraints" onclick="setTab('constraints')">Site Constraints</button>
           <button class="tab-btn" id="tab-dnd" data-tab-id="tabBtnDndChecklist" onclick="setTab('dnd')">Field Crew DND</button>
@@ -1547,10 +1698,11 @@
       <div class="content-list" id="left-content-list"></div>
     </div>
 
-    <!-- Right Pane: Synchronized PDF.js Multi-Page Canvas Viewer -->
+    <!-- Right Pane: Synchronized PDF.js Multi-Page Canvas Viewer & Dual-Pane Redline Studio -->
     <div class="right-pane">
-      <div class="pdf-toolbar">
-        <div>
+      <div class="pdf-toolbar" id="pdf-toolbar">
+        <div style="display:flex; align-items:center; gap:8px;">
+          <button id="btn-back-to-variance" onclick="toggleVarianceView('redline')" style="display:none; background:var(--brand-dark-green); color:#ffffff; font-weight:600; padding:4px 10px; font-size:12px; border-radius:var(--radius-md); border:none; cursor:pointer;" title="Return to Legal Redline Studio">⬅️ Back to Redlines</button>
           <strong id="pdf-page-indicator">PDF Viewer (Physical Page 1)</strong>
         </div>
         <div style="display:flex; gap:6px; align-items:center;">
@@ -1562,6 +1714,7 @@
         </div>
       </div>
       <div id="pdf-canvas-container"></div>
+      <div id="variance-inspector-container" style="display:none; flex:1; flex-direction:column; overflow:hidden; background:var(--neutrals-white);"></div>
     </div>
   </div>
 
@@ -1791,7 +1944,16 @@
       try {
         const response = await originalFetch.apply(this, args);
 
-        if (!response.ok) {
+        const requestOptions = args[1] || {};
+        const isSilent404 = response.status === 404 && (
+          requestOptions.silent404 === true ||
+          requestOptions.silentErrors === true ||
+          url.endsWith("/variance") ||
+          url.includes("/variance/templates")
+        );
+        const isSilent = requestOptions.silentErrors === true || isSilent404;
+
+        if (!response.ok && !isSilent) {
           handleServerError(response.status, response.statusText, isUpload);
         } else if (isUpload) {
           handleExtractionSuccess();
@@ -2018,6 +2180,8 @@
       renderMetaBar();
       if (currentTab === "dnd") {
         await loadDndChecklist();
+      } else if (currentTab === "variance") {
+        await loadContractVarianceStudio();
       } else {
         renderLeftPane();
       }
@@ -2062,16 +2226,323 @@
 
     async function setTab(tabName) {
       currentTab = tabName;
-      for (const id of ["all", "flagged", "constraints", "dnd", "portfolio", "terms", "exhibits"]) {
+      for (const id of ["all", "flagged", "constraints", "dnd", "portfolio", "terms", "exhibits", "variance"]) {
         const el = document.getElementById(`tab-${id}`);
         if (el) el.classList.toggle("active", id === tabName);
       }
-      if (tabName === "portfolio") {
-        await runPortfolioSearch();
-      } else if (tabName === "dnd") {
-        await loadDndChecklist();
+      const backBtn = document.getElementById("btn-back-to-variance");
+      if (backBtn) backBtn.style.display = "none";
+
+      if (tabName === "variance") {
+        toggleVarianceView("redline");
+        await loadContractVarianceStudio();
       } else {
-        renderLeftPane();
+        toggleVarianceView("pdf");
+        if (tabName === "portfolio") {
+          await runPortfolioSearch();
+        } else if (tabName === "dnd") {
+          await loadDndChecklist();
+        } else {
+          renderLeftPane();
+        }
+      }
+    }
+
+    // ==========================================================================
+    // CR-11: Contract Variance Engine, Legal Redline Studio & Multi-Tier Risk
+    // ==========================================================================
+    let varianceState = {
+      bundle: null,
+      candidateTemplates: [],
+      selectedTemplateId: null,
+      selectedClauseNodeId: null,
+      isRunning: false
+    };
+
+    async function loadContractVarianceStudio() {
+      if (!currentBundle) {
+        const container = document.getElementById("left-content-list");
+        if (container) {
+          container.innerHTML = `<div class="clause-card"><span>Select a target contract PDF first to inspect variance and legal redlines.</span></div>`;
+        }
+        return;
+      }
+      const docId = currentBundle.document.document_id;
+
+      // 1. Fetch candidate templates
+      try {
+        const tplRes = await fetch(`/api/v1/contracts/${docId}/variance/templates`, { silent404: true });
+        if (tplRes.ok) {
+          varianceState.candidateTemplates = await tplRes.json();
+        }
+      } catch (err) {
+        console.warn("Could not fetch candidate templates", err);
+      }
+
+      // 2. Fetch existing variance or trigger automatic baseline comparison
+      try {
+        const varRes = await fetch(`/api/v1/contracts/${docId}/variance`, { silent404: true });
+        if (varRes.ok) {
+          varianceState.bundle = await varRes.json();
+          if (varianceState.bundle && varianceState.bundle.variance) {
+            varianceState.selectedTemplateId = varianceState.bundle.variance.template_id;
+          }
+          if (varianceState.bundle && varianceState.bundle.details && varianceState.bundle.details.length > 0) {
+            if (!varianceState.selectedClauseNodeId) {
+              const highRisk = varianceState.bundle.details.find(d => d.risk_level === "HIGH");
+              const modified = varianceState.bundle.details.find(d => d.variance_type === "MODIFIED");
+              varianceState.selectedClauseNodeId = (highRisk || modified || varianceState.bundle.details[0]).contract_node_id;
+            }
+          }
+        } else if (varRes.status === 404) {
+          const topTpl = varianceState.candidateTemplates && varianceState.candidateTemplates[0];
+          await reRunVarianceComparison(topTpl ? topTpl.template_id : undefined);
+          return;
+        }
+      } catch (err) {
+        console.warn("Could not fetch variance data", err);
+      }
+
+      renderVarianceStudio();
+    }
+
+    async function reRunVarianceComparison(templateId) {
+      if (!currentBundle) return;
+      const docId = currentBundle.document.document_id;
+      varianceState.isRunning = true;
+      renderVarianceStudio();
+
+      try {
+        const targetTpl = templateId || varianceState.selectedTemplateId || (varianceState.candidateTemplates[0] ? varianceState.candidateTemplates[0].template_id : "");
+        const url = `/api/v1/contracts/${docId}/compare${targetTpl ? `?template_id=${encodeURIComponent(targetTpl)}` : ""}`;
+        const res = await fetch(url, { method: "POST" });
+        if (res.ok) {
+          varianceState.bundle = await res.json();
+          if (varianceState.bundle && varianceState.bundle.variance) {
+            varianceState.selectedTemplateId = varianceState.bundle.variance.template_id;
+          }
+          if (varianceState.bundle && varianceState.bundle.details && varianceState.bundle.details.length > 0) {
+            const highRisk = varianceState.bundle.details.find(d => d.risk_level === "HIGH");
+            const modified = varianceState.bundle.details.find(d => d.variance_type === "MODIFIED");
+            varianceState.selectedClauseNodeId = (highRisk || modified || varianceState.bundle.details[0]).contract_node_id;
+          }
+        } else {
+          const err = await res.json().catch(() => ({}));
+          console.error("Variance comparison error", err);
+        }
+      } catch (err) {
+        console.error("Comparison exception", err);
+      } finally {
+        varianceState.isRunning = false;
+        renderVarianceStudio();
+      }
+    }
+
+    function onVarianceTemplateChange(templateId) {
+      varianceState.selectedTemplateId = templateId;
+      reRunVarianceComparison(templateId);
+    }
+
+    function selectVarianceClause(nodeId) {
+      varianceState.selectedClauseNodeId = nodeId;
+      toggleVarianceView("redline");
+      renderVarianceStudio();
+    }
+
+    function jumpToClauseInPdf(nodeId) {
+      const clause = (currentBundle?.clauses || []).find(c => c.node_id === nodeId);
+      const pageStart = clause ? clause.page_start : 1;
+      toggleVarianceView("pdf");
+      jumpToPage(pageStart);
+    }
+
+    function toggleVarianceView(viewMode) {
+      const varianceContainer = document.getElementById("variance-inspector-container");
+      const pdfToolbar = document.getElementById("pdf-toolbar");
+      const pdfContainer = document.getElementById("pdf-canvas-container");
+      const backBtn = document.getElementById("btn-back-to-variance");
+      if (viewMode === "redline") {
+        if (varianceContainer) varianceContainer.style.display = "flex";
+        if (pdfToolbar) pdfToolbar.style.display = "none";
+        if (pdfContainer) pdfContainer.style.display = "none";
+        if (backBtn) backBtn.style.display = "none";
+      } else {
+        if (varianceContainer) varianceContainer.style.display = "none";
+        if (pdfToolbar) pdfToolbar.style.display = "flex";
+        if (pdfContainer) pdfContainer.style.display = "flex";
+        if (backBtn) backBtn.style.display = (currentTab === "variance") ? "inline-block" : "none";
+      }
+    }
+
+    function renderVarianceStudio() {
+      const leftContainer = document.getElementById("left-content-list");
+      const rightContainer = document.getElementById("variance-inspector-container");
+      if (!leftContainer) return;
+      leftContainer.innerHTML = "";
+
+      if (varianceState.isRunning) {
+        leftContainer.innerHTML = `
+          <div class="variance-toolbar-card" style="text-align:center; padding:32px;">
+            <div style="font-size:24px; margin-bottom:10px;">⚖️</div>
+            <strong style="font-size:14px; color:var(--brand-dark-green);">Executing Hybrid Alignment &amp; Legal Redline Engine...</strong>
+            <p style="font-size:12px; color:var(--neutrals-gray); margin-top:6px;">Aligning canonical paths, analyzing parameter substitutions, generating word-level Myers diffs, and calculating risk rationales...</p>
+          </div>
+        `;
+        return;
+      }
+
+      if (!varianceState.bundle || !varianceState.bundle.variance) {
+        leftContainer.innerHTML = `
+          <div class="variance-toolbar-card">
+            <strong style="font-size:14px; color:var(--brand-dark-green);">⚖️ Contract Variance &amp; Legal Redline Studio</strong>
+            <p style="font-size:12px; color:var(--neutrals-gray); margin-top:4px;">No variance analysis has been executed for this contract yet.</p>
+            <div style="margin-top:10px;">
+              <button class="primary" onclick="reRunVarianceComparison()">Run Baseline Comparison</button>
+            </div>
+          </div>
+        `;
+        return;
+      }
+
+      const v = varianceState.bundle.variance;
+      const summary = v.summary || {};
+      const details = varianceState.bundle.details || [];
+      const doc = currentBundle?.document || {};
+      const devIndex = Math.round(v.overall_deviation_index || 0);
+
+      // 1. Left Pane Toolbar Card
+      const toolbarCard = document.createElement("div");
+      toolbarCard.className = "variance-toolbar-card";
+
+      const tplOptions = (varianceState.candidateTemplates || []).map(t => {
+        const isSel = (t.template_id === v.template_id) ? "selected" : "";
+        const affinity = Math.round((t.affinity_score || 0) * 100);
+        return `<option value="${escapeHtml(t.template_id)}" ${isSel}>${escapeHtml(t.template_name)} (v${escapeHtml(t.version)}) — Affinity: ${affinity}%</option>`;
+      }).join("");
+
+      toolbarCard.innerHTML = `
+        <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:6px;">
+          <strong style="font-size:13.5px; color:var(--brand-dark-green);">⚖️ Baseline Comparison Studio</strong>
+          <span class="path-pill">${escapeHtml(doc.filename || doc.document_id || "")}</span>
+        </div>
+        <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+          <label style="font-size:12px; font-weight:700; color:var(--primary-slate);">Baseline Template:</label>
+          <select id="variance-template-select" style="flex:1; min-width:200px;" onchange="onVarianceTemplateChange(this.value)">
+            ${tplOptions || `<option value="${escapeHtml(v.template_id)}">${escapeHtml(v.template_name)} (v${escapeHtml(v.template_version)})</option>`}
+          </select>
+          <button class="primary" onclick="reRunVarianceComparison(document.getElementById('variance-template-select').value)">Re-Run Comparison</button>
+        </div>
+        <div class="variance-kpi-bar">
+          <div class="variance-gauge">Deviation: ${devIndex}%</div>
+          <span class="variance-kpi-pill risk-badge-NONE" title="100% Verbatim Match">🟢 ${summary.identical_count || 0} Identical</span>
+          <span class="variance-kpi-pill" style="background:#E0F2FE; color:#0369A1; border:1px solid #BAE6FD;" title="Standard parameter substitution (no redlines)">🔵 ${summary.parameter_only_count || 0} Param Fill-ins</span>
+          <span class="variance-kpi-pill risk-badge-MEDIUM" title="Operational condition modified">🟡 ${summary.medium_risk_count || 0} Medium</span>
+          <span class="variance-kpi-pill risk-badge-HIGH" title="High legal liability deviation">🔴 ${summary.high_risk_count || 0} High Risk</span>
+          <span class="variance-kpi-pill" style="background:#F3F4F6; color:#374151; border:1px solid #D1D5DB;">Total: ${summary.total_clauses_analyzed || details.length}</span>
+        </div>
+      `;
+      leftContainer.appendChild(toolbarCard);
+
+      // 2. Clause Hierarchy Heatmap
+      for (const d of details) {
+        const card = document.createElement("div");
+        const isSelected = (d.contract_node_id === varianceState.selectedClauseNodeId || d.detail_id === varianceState.selectedClauseNodeId);
+
+        let riskDotClass = "risk-dot-NONE";
+        if (d.risk_level === "HIGH") riskDotClass = "risk-dot-HIGH";
+        else if (d.risk_level === "MEDIUM") riskDotClass = "risk-dot-MEDIUM";
+        else if (d.risk_level === "LOW") riskDotClass = "risk-dot-LOW";
+        else if (d.variance_type === "PARAMETER_ONLY") riskDotClass = "risk-dot-PARAM";
+
+        card.className = `clause-card ${isSelected ? 'selected' : ''}`;
+        card.style.borderLeft = d.risk_level === "HIGH" ? "4px solid #DC2626" : (d.risk_level === "MEDIUM" ? "4px solid #D97706" : (d.variance_type === "PARAMETER_ONLY" ? "4px solid #0284C7" : "4px solid #16A34A"));
+        card.onclick = () => selectVarianceClause(d.contract_node_id || d.detail_id);
+
+        card.innerHTML = `
+          <div class="card-header" style="margin-bottom:4px;">
+            <div style="display:flex; align-items:center; gap:6px;">
+              <span class="risk-dot ${riskDotClass}"></span>
+              <span class="path-pill">${escapeHtml(d.canonical_path)}</span>
+              <strong style="margin-left:4px;">${escapeHtml(d.clause_title || d.canonical_path)}</strong>
+            </div>
+            <div style="display:flex; align-items:center; gap:4px;">
+              <span class="vtype-badge vtype-${d.variance_type}">${escapeHtml(d.variance_type)}</span>
+              <span class="variance-kpi-pill risk-badge-${d.risk_level}" style="font-size:10.5px; padding:2px 6px;">${escapeHtml(d.risk_level)}</span>
+            </div>
+          </div>
+          ${d.risk_rationale && d.risk_level !== "NONE" ? `
+            <div style="font-size:11.5px; color:${d.risk_level === 'HIGH' ? '#991B1B' : '#92400E'}; margin:4px 0 6px 16px; font-weight:600;">
+              ${escapeHtml(d.risk_rationale)}
+            </div>
+          ` : ""}
+          <div class="chip-row" style="margin-top:2px;">
+            ${d.similarity_score !== undefined ? `<span class="chip">Similarity: ${Math.round(d.similarity_score * 100)}%</span>` : ""}
+            ${d.risk_categories && d.risk_categories !== "NONE" ? `<span class="chip flag-chip">${escapeHtml(d.risk_categories)}</span>` : ""}
+            <span class="chip" style="font-family:var(--font-mono); font-size:10px;">ID: ${escapeHtml(d.contract_node_id || d.template_node_id || '')}</span>
+          </div>
+        `;
+        leftContainer.appendChild(card);
+      }
+
+      // 3. Render Right Pane (Dual-Pane Redline Inspector)
+      if (rightContainer) {
+        let selDetail = details.find(d => d.contract_node_id === varianceState.selectedClauseNodeId || d.detail_id === varianceState.selectedClauseNodeId);
+        if (!selDetail && details.length > 0) {
+          selDetail = details[0];
+          varianceState.selectedClauseNodeId = selDetail.contract_node_id || selDetail.detail_id;
+        }
+
+        if (!selDetail) {
+          rightContainer.innerHTML = `<div style="padding:24px; color:var(--neutrals-gray);">Select a clause from the heatmap to inspect its baseline redline.</div>`;
+          return;
+        }
+
+        let alertClass = `variance-risk-alert-${selDetail.risk_level}`;
+        let alertIcon = selDetail.risk_level === "HIGH" ? "⚠️" : (selDetail.risk_level === "MEDIUM" ? "⚡" : (selDetail.variance_type === "PARAMETER_ONLY" ? "🔵" : "🟢"));
+        let alertMessage = selDetail.risk_rationale || (
+          selDetail.variance_type === "IDENTICAL"
+            ? "Verbatim Match: Contract language exactly matches regional master template."
+            : (selDetail.variance_type === "PARAMETER_ONLY"
+                ? "Standard parameter substitution detected: Variable values bound with 0 unauthorized legal modifications."
+                : `${selDetail.variance_type} clause.`)
+        );
+
+        rightContainer.innerHTML = `
+          <div class="variance-inspector-header">
+            <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:6px;">
+              <div>
+                <span class="path-pill" style="font-size:12px;">${escapeHtml(selDetail.canonical_path)}</span>
+                <strong style="font-size:14px; margin-left:6px; color:var(--brand-dark-green);">${escapeHtml(selDetail.clause_title || selDetail.canonical_path)}</strong>
+              </div>
+              <div style="display:flex; gap:6px; align-items:center;">
+                <span class="vtype-badge vtype-${selDetail.variance_type}">${escapeHtml(selDetail.variance_type)}</span>
+                <span class="variance-kpi-pill risk-badge-${selDetail.risk_level}">${escapeHtml(selDetail.risk_level)} RISK</span>
+                <button onclick="jumpToClauseInPdf('${selDetail.contract_node_id}')" style="padding:4px 9px; font-size:11px;" title="View Physical PDF Page">📄 View in PDF</button>
+              </div>
+            </div>
+            <div class="variance-risk-alert ${alertClass}">
+              <span>${alertIcon}</span>
+              <span style="flex:1;">${escapeHtml(alertMessage)}</span>
+              ${selDetail.similarity_score !== undefined ? `<span style="font-family:var(--font-mono); font-size:11px;">Similarity: ${Math.round(selDetail.similarity_score * 100)}%</span>` : ""}
+            </div>
+          </div>
+          <div class="variance-dual-pane-stage">
+            <div class="variance-column">
+              <div class="variance-col-title">
+                <span>Baseline Form: ${escapeHtml(v.template_name || 'Template')} (v${escapeHtml(v.template_version || '1.0')})</span>
+                <span style="font-size:10px; opacity:0.8;">CANONICAL BASELINE</span>
+              </div>
+              <div class="variance-col-body">${escapeHtml(selDetail.template_baseline_text || "(Clause not present in baseline template)")}</div>
+            </div>
+            <div class="variance-column">
+              <div class="variance-col-title">
+                <span>Executed Contract: ${escapeHtml(doc.filename || 'Executed Document')}</span>
+                <span style="font-size:10px; opacity:0.8;">REDLINE VIEW</span>
+              </div>
+              <div class="variance-col-body">${selDetail.redline_html || escapeHtml(selDetail.contract_executed_text || "(Clause deleted in executed agreement)")}</div>
+            </div>
+          </div>
+        `;
       }
     }
 
@@ -2318,6 +2789,11 @@
     function renderLeftPane() {
       const container = document.getElementById("left-content-list");
       container.innerHTML = "";
+
+      if (currentTab === "variance") {
+        renderVarianceStudio();
+        return;
+      }
 
       if (currentTab === "dnd") {
         const dnd = dndChecklistState.bundle;

@@ -113,3 +113,40 @@ LEFT JOIN `contract_intelligence.v_active_documents` d
     ON l.landowner_id = d.landowner_id
 LEFT JOIN `contract_intelligence.v_active_special_conditions` sc 
     ON d.document_id = sc.document_id;
+
+-- 10. Canonical Template Registry Latest Revision View
+CREATE OR REPLACE VIEW `contract_intelligence.template_registry_latest` AS
+SELECT *
+FROM `contract_intelligence.template_registry`
+QUALIFY ROW_NUMBER() OVER (
+    PARTITION BY template_id
+    ORDER BY updated_at DESC
+) = 1;
+
+-- 11. Canonical Template Clauses Latest Revision View
+CREATE OR REPLACE VIEW `contract_intelligence.template_clauses_latest` AS
+SELECT *
+FROM `contract_intelligence.template_clauses`
+QUALIFY ROW_NUMBER() OVER (
+    PARTITION BY template_id, node_id
+    ORDER BY created_at DESC
+) = 1;
+
+-- 12. Contract Variances Latest Run View
+CREATE OR REPLACE VIEW `contract_intelligence.contract_variances_latest` AS
+SELECT *
+FROM `contract_intelligence.contract_variances`
+QUALIFY ROW_NUMBER() OVER (
+    PARTITION BY document_id, template_id
+    ORDER BY created_at DESC
+) = 1;
+
+-- 13. Clause Variance Details Latest Revision View
+CREATE OR REPLACE VIEW `contract_intelligence.clause_variance_details_latest` AS
+SELECT *
+FROM `contract_intelligence.clause_variance_details`
+QUALIFY ROW_NUMBER() OVER (
+    PARTITION BY variance_id, canonical_path
+    ORDER BY created_at DESC
+) = 1;
+

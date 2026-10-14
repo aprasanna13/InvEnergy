@@ -543,7 +543,7 @@ def test_schema_parity_and_config_defaults() -> None:
     assert len(CLAUSE_CSV_COLUMNS) == 32
     assert len(DEFINED_TERM_CSV_COLUMNS) == 8
     assert len(EXHIBIT_CATALOG_CSV_COLUMNS) == 10
-    assert len(DOCUMENT_REGISTRY_COLUMNS) == 18
+    assert len(DOCUMENT_REGISTRY_COLUMNS) == 22
     assert len(SPECIAL_CONDITION_CSV_COLUMNS) == 18
     assert len(DND_SIGNOFF_CSV_COLUMNS) == 12
 

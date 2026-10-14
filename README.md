@@ -241,27 +241,126 @@ The application provides zero-trust passwordless Email Link authentication:
 
 ## 8. Local Execution & Testing
 
-To test or develop locally:
+### 8.1 Quick Terminal Run (Self-Hosted / Local Machine)
+
+To run the application locally from your terminal:
 
 ```bash
-# 1. Create and activate Python virtual environment
-python3 -m venv .venv
+# 1. Navigate to the project root
+cd /usr/local/google/home/prasannaankem/Code/Invenergy
+
+# 2. Activate the virtual environment
 source .venv/bin/activate
 
-# 2. Install application with development and test dependencies
-pip install -e ".[dev]"
-
-# 3. Configure local environment
-cp .env.example .env
-# Edit .env with your local credentials and project IDs
-
-# 4. Run full test suite
-pytest tests/
-
-# 5. Start development server
+# 3. Launch the FastAPI application server with live hot-reloading
 uvicorn contract_parser.app:app --host 127.0.0.1 --port 8000 --reload
 ```
-Open [http://127.0.0.1:8000](http://127.0.0.1:8000) in your browser.
+
+Alternatively, launch the server in a single command without manually activating the virtual environment:
+
+```bash
+./.venv/bin/uvicorn contract_parser.app:app --host 127.0.0.1 --port 8000 --reload
+```
+
+#### Application Endpoints & Verification
+* **Web UI Dashboard:** [http://127.0.0.1:8000](http://127.0.0.1:8000) (Interactive contract analysis, portfolio search, and DND interlocks)
+* **Template Studio Workbench:** [http://127.0.0.1:8000/template-studio](http://127.0.0.1:8000/template-studio) (Regional template management, canonical AST clause hierarchy, bracket variable extraction)
+* **Interactive API Documentation (Swagger):** [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs)
+* **ReDoc Specification:** [http://127.0.0.1:8000/redoc](http://127.0.0.1:8000/redoc)
+* **Caller Identity Endpoint:** [http://127.0.0.1:8000/api/v1/auth/me](http://127.0.0.1:8000/api/v1/auth/me)
+
+#### Common Command-Line Flags
+* **Alternative Port:** If port 8000 is occupied, bind to any alternative port (e.g. `--port 8080`):
+  ```bash
+  uvicorn contract_parser.app:app --host 127.0.0.1 --port 8080 --reload
+  ```
+* **Inline Environment Overrides:** Run in standalone evaluation mode directly from the command line without editing `.env`:
+  ```bash
+  AUTH_ENABLED=false USE_CLOUD_STORAGE=false USE_BIGQUERY=false LOCAL_DATA_DIR=./data \
+    uvicorn contract_parser.app:app --host 127.0.0.1 --port 8000 --reload
+  ```
+* **Stopping the Application:** Press `Ctrl + C` in your terminal to gracefully flush telemetry spans and terminate the process.
+
+---
+
+### 8.2 Customer Evaluation Mode (Zero Cloud Dependencies - CR-10)
+
+For customer engineering teams evaluating the platform locally or in containerized environments without setting up Google Cloud, BigQuery, or Firebase:
+
+```bash
+# 1. Clone repository and install dependencies
+git clone <repo-url>
+cd Invenergy
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -e ".[dev]"
+
+# 2. Configure .env for evaluation mode (or pass variables via shell)
+cp .env.example .env
+
+# Set evaluation variables in .env:
+AUTH_ENABLED=false
+USE_CLOUD_STORAGE=false
+USE_BIGQUERY=false
+LOCAL_DATA_DIR=./data
+
+# 3. Launch application
+uvicorn contract_parser.app:app --host 127.0.0.1 --port 8000 --reload
+```
+Open [http://127.0.0.1:8000](http://127.0.0.1:8000). The workspace opens directly to the dashboard with full administrative permissions (`dev@invenergy.com`). All uploaded contracts, AST nodes, and regional templates persist locally in SQLite (`./data/contract_parser.db`).
+
+---
+
+### 8.3 Docker Evaluation Mode
+
+Run the container directly with authentication and cloud lakehouse dependencies disabled:
+
+```bash
+docker run -p 8080:8080 \
+  -e AUTH_ENABLED=false \
+  -e USE_CLOUD_STORAGE=false \
+  -e USE_BIGQUERY=false \
+  -e LOCAL_DATA_DIR=/tmp/data \
+  invenergy-contract-intelligence:latest
+```
+
+---
+
+### 8.4 Standard Production / Development Mode
+
+To run with full cloud integration and Firebase Zero-Trust authentication:
+
+```bash
+# 1. Ensure .env has AUTH_ENABLED=true and valid GCP/Firebase credentials
+pytest tests/
+
+# 2. Start server
+uvicorn contract_parser.app:app --host 127.0.0.1 --port 8000 --reload
+```
+
+### 8.5 Regional Template Studio & Canonical AST Registry (CR-9)
+
+The platform provides a dedicated Workbench UI and REST API for managing regional master contract templates, performing bounded two-pass AST structural extraction, quarantining signature pages, and tokenizing bracket variables (`$[_____]`, `[County]`, `[Effective Date]`):
+
+* **Studio Workbench UI:** Navigate to `/template-studio` in any browser to view the 3-pane interface:
+  1. *Left Pane:* Regional template repository browser with real-time state, technology, and form type filtering.
+  2. *Center Pane:* High-fidelity PDF viewer with page controls and auto-fit zoom.
+  3. *Right Pane:* Canonical AST tree with structured clause paths (`BODY.1.1`, `EXHIBIT_A.1`), substantive text, and typed placeholder chips.
+
+* **Cold-Start Seeding:** Auto-discover and register the 6 baseline canonical sample templates (`samples/Templates/` across IL, MI, OK, US General):
+  ```bash
+  curl -X POST http://127.0.0.1:8000/api/v1/templates/seed
+  ```
+
+* **Template REST Endpoints:**
+  | Method | Endpoint | Description |
+  | :--- | :--- | :--- |
+  | `POST` | `/api/v1/templates/upload` | Multipart upload with metadata tags, SHA-256 deduplication, and AST extraction |
+  | `GET` | `/api/v1/templates` | Filter templates by `state`/`state_province`, `energy_technology`/`technology`, and `form_type` |
+  | `GET` | `/api/v1/templates/{id}` | Retrieve full canonical AST bundle and metadata |
+  | `GET` | `/api/v1/templates/{id}/pdf` | Stream raw master template PDF with inline display |
+  | `POST` | `/api/v1/templates/seed` | Seed canonical sample templates from `samples/Templates` |
+  | `GET` | `/template-studio` | Serve dedicated Template Studio HTML workbench |
 
 ---
 
@@ -341,3 +440,5 @@ TELEMETRY_SAMPLE_RATE=1.0" \
 | **Auth Domain Not Authorized** | Cloud Run domain missing from Firebase Auth settings. | Add the Cloud Run domain (e.g. `*.run.app` or custom domain) to Firebase Console > Authentication > Settings > Authorized Domains. |
 | **PDF Extraction Timeout** | Very large PDF document (>150 pages). | Increase `PASS_TIMEOUT_SECONDS` (default: 480s) and ensure Cloud Run `--timeout` is set to 600 seconds or higher. |
 | **Ask-Agent 404 / Unavailable** | BigQuery Data Agent URN invalid or not yet published. | Verify `BQ_DATA_AGENT_URN` matches the published agent resource in BigQuery Studio > Data Agents. |
+
+

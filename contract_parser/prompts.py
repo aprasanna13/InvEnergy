@@ -204,3 +204,37 @@ def build_exhibits_pass_directive(index: ContractStructureIndex) -> str:
         "4. Capture all defined terms and physical site constraints in the exhibits.\n"
         "Do NOT extract the main Agreement Body in this pass."
     )
+
+
+# =============================================================================
+# CR-9: Regional Template Studio Specialized Prompts
+# =============================================================================
+
+TEMPLATE_STRUCTURE_DISCOVERY_PROMPT = """You are an expert renewable energy legal analyst and contract template structural indexer.
+Analyze this regional master contract template PDF.
+Return a structured JSON document index adhering strictly to the `TemplateStructureIndex` schema:
+1. `document_title`: Verbatim agreement title from the header/preamble (e.g. "REAL ESTATE LEASE AND EASEMENT AGREEMENT").
+2. `country`: Governing country, default "US".
+3. `state_province`: Governing state/province abbreviation (e.g. "IL", "MI", "OK", "TX", "OH") or "US" if multi-state/general.
+4. `energy_technology`: Primary energy technology (SOLAR, ONSHORE_WIND, STORAGE, THERMAL, CROSS_TECHNOLOGY).
+5. `form_type`: Standard form type (WIND_EASEMENT, SOLAR_LEASE, SOLAR_EASEMENT, STORAGE_EASEMENT, LAND_OPTION_PURCHASE, PARTICIPATION_EASEMENT, OTHER).
+6. `vintage_year`: Vintage year stated or inferred (e.g. "2024", "2025").
+7. `preamble_span`: Page span for the opening preamble paragraph.
+8. `recitals_span`: Page span for WHEREAS recitals, if present.
+9. `body_articles`: List of all numbered Articles/Sections in the main agreement body with starting and ending page numbers.
+10. `quarantine_signatures_span`: CRITICAL: Identify the exact physical page bounds of the execution block, signature blocks, witness attestations, and notary public acknowledgment certificates (e.g. 'IN WITNESS WHEREOF' through 'State of __, County of __, ss:').
+11. `exhibits`: List of all attached Exhibits, Schedules, or Addenda with page ranges.
+Strictly ensure that attached exhibits appearing after signatures are captured as separate exhibit spans.
+"""
+
+TEMPLATE_SUBSTANTIVE_CLAUSE_PROMPT = """You are an expert renewable energy legal draftsman and contract parser.
+Extract 100% of the substantive boilerplate clauses from the designated pages adhering strictly to the `TemplatePassExtraction` schema.
+
+Rules:
+1. EXHAUSTIVE VERBATIM EXTRACTION: Capture every article, section, subsection, and paragraph verbatim without summarizing or omitting text.
+2. PRESERVE FILL-IN PLACEHOLDERS: Retain all unpopulated brackets, underline blanks, and brackets exactly as written (e.g., '$[_____] per megawatt', 'within [30/60] days', '[County]', '_________, 20__').
+3. EXTRACT PLACEHOLDER METADATA: Extract each bracket into the `placeholder_variables` list with `variable_name`, `bracket_text`, and `data_type_hint` (CURRENCY, DURATION, DATE, STRING, NUMBER).
+4. STRICT SIGNATURE SUPPRESSION: Do NOT generate any clause nodes for signature lines, officer titles, witness tables, or notary certificates falling within the quarantined signature span.
+5. Accurate physical page numbers: Accurately record `page_start` and `page_end` for every node.
+"""
+
