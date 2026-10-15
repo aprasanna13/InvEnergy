@@ -370,7 +370,9 @@
   * Updated `README.md` to `v0.12.3` with full 14-table Mermaid architecture, module layout, Section 8.6 (CR-11 Legal Redline Studio), Section 8.7 (CR-12 Batch Ingestion Studio), and Cloud Run Job commands.
   * Certified 100% plan parity (24 positive fortifications, 0 negative regressions, 7 resolved conflicts) with 85/85 tests passing.
 
-
-
-
+## [0.12.5] - 2026-10-15
+- Fortified Asynchronous Cloud Run Job Dispatch & Dependency Architecture:
+  * Added `google-cloud-run>=0.10.0` to `dependencies` in `pyproject.toml` ensuring `google.cloud.run_v2` is installed in deployed production container images.
+  * Enhanced `contract_parser/app.py` batch job launch controller with dual-path invocation: primary Google Cloud Run v2 Client SDK with seamless fallback to direct Google Cloud Run v2 REST API via `httpx` and `google.auth` bearer token injection.
+  * Added detailed structured logging across SDK and REST invocation stages to ensure complete auditability and eliminate silent fallbacks to in-process execution.
 

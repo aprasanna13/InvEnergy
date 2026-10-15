@@ -1146,36 +1146,84 @@ def create_app(
         triggered_cloud_run = False
 
         if not use_local and request.gcs_prefix.startswith("gs://"):
+            gcp_proj = cfg.google_cloud_project
+            region = os.getenv("REGION", "us-central1")
+            run_args = [
+                "--job-id",
+                job.job_id,
+                "--gcs-prefix",
+                request.gcs_prefix,
+                "--concurrency",
+                str(request.concurrency),
+            ]
+            # Primary execution path: Google Cloud Run v2 Client SDK
             try:
                 import google.cloud.run_v2 as run_v2
 
-                gcp_proj = cfg.google_cloud_project
-                region = os.getenv("REGION", "us-central1")
                 job_client = run_v2.JobsClient()
                 run_req = run_v2.RunJobRequest(
                     name=f"projects/{gcp_proj}/locations/{region}/jobs/contract-parser-batch",
                     overrides=run_v2.RunJobRequest.Overrides(
                         container_overrides=[
                             run_v2.RunJobRequest.Overrides.ContainerOverride(
-                                args=[
-                                    "--job-id",
-                                    job.job_id,
-                                    "--gcs-prefix",
-                                    request.gcs_prefix,
-                                    "--concurrency",
-                                    str(request.concurrency),
-                                ]
+                                args=run_args
                             )
                         ]
                     ),
                 )
                 job_client.run_job(request=run_req)
                 triggered_cloud_run = True
-                logger.info("Cloud Run Job 'contract-parser-batch' triggered for %s", job.job_id)
+                logger.info("Cloud Run Job 'contract-parser-batch' triggered via SDK for %s", job.job_id)
             except Exception as cr_exc:
                 logger.warning(
-                    "Cloud Run Job trigger failed (%s); falling back to local runner", cr_exc
+                    "Cloud Run Job SDK trigger failed (%s); attempting Cloud Run REST API v2 fallback...",
+                    cr_exc,
                 )
+                # Resilient secondary execution path: Direct Cloud Run v2 REST API call
+                try:
+                    import google.auth
+                    import google.auth.transport.requests
+                    import httpx
+
+                    creds, _ = google.auth.default(
+                        scopes=["https://www.googleapis.com/auth/cloud-platform"]
+                    )
+                    auth_req = google.auth.transport.requests.Request()
+                    creds.refresh(auth_req)
+                    job_url = (
+                        f"https://run.googleapis.com/v2/projects/{gcp_proj}/locations/"
+                        f"{region}/jobs/contract-parser-batch:run"
+                    )
+                    rest_payload = {
+                        "overrides": {
+                            "containerOverrides": [
+                                {
+                                    "args": run_args
+                                }
+                            ]
+                        }
+                    }
+                    async with httpx.AsyncClient() as client:
+                        rest_resp = await client.post(
+                            job_url,
+                            headers={
+                                "Authorization": f"Bearer {creds.token}",
+                                "Content-Type": "application/json",
+                            },
+                            json=rest_payload,
+                            timeout=30.0,
+                        )
+                        rest_resp.raise_for_status()
+                    triggered_cloud_run = True
+                    logger.info(
+                        "Cloud Run Job 'contract-parser-batch' triggered via REST API for %s",
+                        job.job_id,
+                    )
+                except Exception as rest_exc:
+                    logger.error(
+                        "Cloud Run Job REST API trigger also failed (%s); falling back to local runner",
+                        rest_exc,
+                    )
 
         if not triggered_cloud_run:
             asyncio.create_task(
