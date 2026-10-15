@@ -300,3 +300,46 @@
   * Wrapped SQLite variance persistence in `contract_parser/storage.py` inside an atomic transaction (`with conn:`) and optimized batch child insertion with `executemany`.
   * Added OpenTelemetry `StatusCode.ERROR` and exception recording to `contract_parser/gemini_parser.py` on extraction fallbacks.
   * Refactored `.diff-ins` and `.diff-del` CSS in `contract_parser/static/index.html` with `white-space: pre-wrap` and removed excessive `!important` flags.
+
+## [0.12.0-draft] - 2026-10-14
+- Drafted Change Request `Design/CR12_HISTORICAL_BATCH_INGESTION_AND_DISCOVERY.md` via `/egm-draft` covering historical batch contract ingestion, autonomous location-driven consolidation, sliding-window concurrency, and the Batch Ingestion Studio dashboard.
+- Defined location-driven consolidation algorithm with first-inserted cross-county anchor rule and nullable ERP codes.
+- Specified Option B sliding-window worker pool maintaining continuous 5 active workers to balance throughput with Vertex AI rate quotas.
+- Designed dual-table BigQuery state tracking schema (`batch_jobs`, `batch_job_items`) and deduplicated views (`v_active_batch_jobs`, `v_active_batch_job_items`).
+- Integrated end-to-end OpenTelemetry distributed tracing and structured JSON Cloud Logging across 6 discrete stages (`STAGE_SCAN`, `STAGE_GEO_RESOLVE`, `STAGE_PASS_START`, `STAGE_TOKEN_METRICS`, `STAGE_PERSIST`, `STAGE_ITEM_FAIL`, `STAGE_BATCH_SUMMARY`).
+- Formulated REST API contracts (`/api/v1/batch/*`) and standalone Cloud Run Job execution profile.
+- Defined Web UI "Batch Ingestion Studio" specification with live progress polling, KPI metrics, failure drawer, and drill-down links to the contract viewer.
+
+## [0.12.0-spec-approved] - 2026-10-15
+- Fortified `Design/CR12_HISTORICAL_BATCH_INGESTION_AND_DISCOVERY.md` based on detailed engineering gap analysis and review:
+  * Replaced nullable ERP codes with deterministic synthetic codes (`ERP-{TECH_ABBR}-{STATE}-{COUNTY}` / `ERP-{TECH_ABBR}-AUTO`) to preserve existing database constraints without breaking migrations.
+  * Added additive `created_at` timestamp column to `projects` table and `ProjectRow` to deterministically support first-inserted cross-county anchor resolution.
+  * Provided dual-engine SQLite DDL alongside BigQuery DDL with compatible subquery window-function deduplication views (`v_active_batch_*`).
+  * Defined sub-second, zero-download GCS object metadata scanning protocol (`metadata.ingestion_status = 'COMPLETED'`).
+  * Specified clean-slate atomicity rule: purges partial lakehouse records and re-processes uncompleted contracts from page 1 on retries.
+  * Specified dedicated `Dockerfile.batch` container for Cloud Run Job execution with decoupled asynchronous orchestration via Google Cloud Run v2 Client API and in-process local runner fallback.
+  * Enforced Admin-only Role-Based Access Control (`require_admin`) on batch mutations and deferred job cancellation status.
+  * Added complete IAM security roles and customer provisioning scripts in the customer handover documentation.
+
+## [0.12.0] - 2026-10-15
+- Implemented Historical Batch Ingestion, Autonomous Location-Driven Consolidation, and Batch Ingestion Studio (CR-12):
+  * Built Option 4a sub-second GCS blob metadata scanning (`ingestion_status: COMPLETED`) and flat directory discovery in `contract_parser/batch.py`.
+  * Implemented Option 3 location-driven project consolidation & auto-provisioning with deterministic synthetic ERP codes (`ERP-<TECH>-<STATE>-<COUNTY_CODE>`) and cross-county root entity anchoring (`ORDER BY created_at ASC LIMIT 1`).
+  * Built Option B continuous sliding-window worker pool concurrency (`asyncio.Semaphore(concurrency)`) bounding parallel extraction tasks while dynamically aggregating file and token metrics.
+  * Implemented fault-tolerant clean-slate purge on error (`purge_partial_document()`) ensuring atomic contract re-processing and partial record removal on failures.
+  * Extended `contract_parser/storage.py` and SQL DDL with Tables 13 (`batch_jobs`) and 14 (`batch_job_items`) and deduplicated views (`v_active_batch_jobs`, `v_active_batch_job_items`).
+  * Added additive `created_at` timestamp column to `projects` schema and updated model validation across SQLite and BigQuery.
+  * Created container definition `Dockerfile.batch` and decoupled Cloud Run Job execution controller with local asynchronous runner fallback.
+  * Added REST API endpoints (`POST /api/v1/batch/scan`, `POST /api/v1/batch/launch`, `GET /api/v1/batch/jobs/{job_id}`, `GET /api/v1/batch/jobs`, `POST /api/v1/batch/retry/{job_id}`) protected by Admin-only RBAC (`require_admin`).
+  * Integrated structured OpenTelemetry tracing and Cloud Logging across 7 pipeline stages (`STAGE_SCAN`, `STAGE_GEO_RESOLVE`, `STAGE_PASS_START`, `STAGE_TOKEN_METRICS`, `STAGE_PERSIST`, `STAGE_ITEM_FAIL`, `STAGE_BATCH_SUMMARY`).
+  * Added UI Batch Ingestion Studio Modal (`#batch-studio-modal`) with real-time polling, metrics overview, job feed, failure drawer, and drill-down links to contract viewer in `contract_parser/static/index.html`.
+  * Authored comprehensive test suite `tests/test_cr12_batch_ingestion.py` covering Gherkin Scenarios 1–7 with 100% pass rate.
+
+## [0.12.1] - 2026-10-15
+- Fixed Batch Ingestion Studio scan/launch payload schema alignment and frontend error handling:
+  * Added `normalize_inbox_uri()` in `contract_parser/schemas.py` and `contract_parser/batch.py` to auto-resolve GCS URI prefixes without scheme prefixes (e.g. `pr-tftest-contract-intelligence/batch_inbox` -> `gs://pr-tftest-contract-intelligence/batch_inbox`).
+  * Updated `BatchScanRequest` and `BatchLaunchRequest` with `@model_validator` accepting both `gcs_prefix` and `source_uri` aliases.
+  * Added computed fields to `BatchScanResponse` (`total_files_found`, `pending_contracts`, `files_to_process`), `BatchLaunchResponse` (`total_contracts`), and `BatchRetryResponse` (`retried_items`).
+  * Enhanced `scanBatchInbox()`, `launchBatchJob()`, and `retrySelectedJobFailed()` in `contract_parser/static/index.html` with structured API error formatting to eliminate `[object Object]` alert dialogs and handle dual payload formats.
+
+

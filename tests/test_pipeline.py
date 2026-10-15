@@ -538,7 +538,7 @@ class HermeticFixtureExtractor:
 
 def test_schema_parity_and_config_defaults() -> None:
     """Verify exact 8-table column counts, BigQuery schema parity, and PipelineConfig defaults (SA-1..SA-5, CR-1, CR-2, CR-3)."""
-    assert len(PROJECT_CSV_COLUMNS) == 12
+    assert len(PROJECT_CSV_COLUMNS) == 13
     assert len(LANDOWNER_CSV_COLUMNS) == 10
     assert len(CLAUSE_CSV_COLUMNS) == 32
     assert len(DEFINED_TERM_CSV_COLUMNS) == 8

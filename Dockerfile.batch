@@ -1,0 +1,17 @@
+FROM python:3.12-slim
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    LOCAL_DATA_DIR=/tmp/data
+
+WORKDIR /app
+
+COPY pyproject.toml .
+COPY Design/ Design/
+COPY contract_parser/ contract_parser/
+COPY samples/ samples/
+
+RUN pip install --no-cache-dir .
+RUN mkdir -p /tmp/data
+
+ENTRYPOINT ["python", "-m", "contract_parser.batch"]

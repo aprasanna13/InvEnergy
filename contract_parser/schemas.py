@@ -4,9 +4,10 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from enum import StrEnum
+from pathlib import Path
 from typing import Any, Self
 import re
-from pydantic import BaseModel, ConfigDict, Field, computed_field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, computed_field, field_validator, model_validator
 
 
 def utc_now_iso() -> str:
@@ -167,7 +168,7 @@ class IngestionStatus(StrEnum):
 
 
 class ProjectRow(BaseModel):
-    """Table 6: `projects` Master ERP Project Registry in BigQuery & SQLite (12 columns for CR-2 / R3)."""
+    """Table 6: `projects` Master ERP Project Registry in BigQuery & SQLite (13 columns for CR-2 / CR-12)."""
 
     model_config = ConfigDict(extra="ignore")
 
@@ -191,7 +192,15 @@ class ProjectRow(BaseModel):
         default=0,
         description="Total clauses awaiting HITL review across this project",
     )
+    created_at: str = Field(default_factory=utc_now_iso, description="UTC timestamp of project record creation")
     updated_at: str = Field(default_factory=utc_now_iso, description="UTC timestamp of this row version")
+
+    @field_validator("created_at", mode="before")
+    @classmethod
+    def _ensure_created_at(cls, v: Any) -> str:
+        if not v:
+            return utc_now_iso()
+        return str(v)
 
 
 class LandownerRow(BaseModel):
@@ -542,6 +551,12 @@ class ContractStructureIndex(BaseModel):
     document_title: str = Field(description="Formal title of the agreement")
     grantor_landowner_name: str | None = Field(default=None, description="Canonical grantor counterparty name")
     grantee_entity_name: str | None = Field(default=None, description="Canonical grantee counterparty name")
+    state_province: str | None = Field(default=None, description="Two-letter US state code or province (e.g. 'IL', 'OH')")
+    county: str | None = Field(default=None, description="County or parish jurisdiction (e.g. 'McLean', 'Hardin')")
+    energy_technology: EnergyTechnology = Field(
+        default=EnergyTechnology.ONSHORE_WIND,
+        description="ONSHORE_WIND, SOLAR, STORAGE, TRANSMISSION, or GEOTHERMAL",
+    )
     effective_date: str | None = Field(default=None, description="Execution or effective date string")
     has_recitals: bool = Field(default=False, description="True if agreement contains WHEREAS recitals")
     body_start_page: int = Field(default=1, ge=1, description="First physical page of the agreement body")
@@ -2034,6 +2049,183 @@ CLAUSE_VARIANCE_DETAILS_COLUMNS: list[str] = [
     "page_start",
     "created_at",
 ]
+
+
+class BatchJobStatus(StrEnum):
+    PENDING = "PENDING"
+    QUEUED = "QUEUED"
+    RUNNING = "RUNNING"
+    COMPLETED = "COMPLETED"
+    FAILED = "FAILED"
+    PARTIAL = "PARTIAL"
+
+
+class BatchItemStatus(StrEnum):
+    PENDING = "PENDING"
+    QUEUED = "QUEUED"
+    PROCESSING = "PROCESSING"
+    RUNNING = "RUNNING"
+    COMPLETED = "COMPLETED"
+    FAILED = "FAILED"
+    SKIPPED = "SKIPPED"
+
+
+class BatchJobRow(BaseModel):
+    """Table 13: `batch_jobs` Run-level batch state tracking in BigQuery & SQLite."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    job_id: str = Field(description="Unique batch job identifier (e.g. batch_20261015_013700)")
+    gcs_prefix: str = Field(description="GCS prefix or local directory path scanned")
+    total_files: int = Field(default=0, description="Total files discovered for processing")
+    processed_files: int = Field(default=0, description="Number of files completed or failed")
+    success_count: int = Field(default=0, description="Number of files successfully processed")
+    failure_count: int = Field(default=0, description="Number of files failed")
+    status: BatchJobStatus = Field(default=BatchJobStatus.PENDING, description="Job status")
+    started_at: str = Field(default_factory=utc_now_iso, description="UTC start timestamp")
+    completed_at: str | None = Field(default=None, description="UTC completion timestamp")
+    total_tokens_consumed: int = Field(default=0, description="Aggregate token count across all files")
+    prompt_tokens_consumed: int = Field(default=0, description="Aggregate prompt tokens")
+    completion_tokens_consumed: int = Field(default=0, description="Aggregate output tokens")
+    triggered_by: str | None = Field(default=None, description="User email or identity initiating batch")
+    error_summary: str | None = Field(default=None, description="Summary error message if job failed")
+    updated_at: str = Field(default_factory=utc_now_iso, description="UTC update timestamp")
+
+
+class BatchJobItemRow(BaseModel):
+    """Table 14: `batch_job_items` Document-level batch state tracking in BigQuery & SQLite."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    item_id: str = Field(description="Unique batch item identifier (e.g. itm_<job_id>_<idx>)")
+    job_id: str = Field(description="Parent BatchJobRow.job_id")
+    gcs_uri: str = Field(description="Full GCS URI or local path of source document")
+    filename: str = Field(description="Basename of source PDF")
+    document_id: str | None = Field(default=None, description="Assigned canonical document_id upon extraction")
+    project_id: str | None = Field(default=None, description="Associated ProjectRow.project_id")
+    landowner_id: str | None = Field(default=None, description="Associated LandownerRow.landowner_id")
+    status: BatchItemStatus = Field(default=BatchItemStatus.QUEUED, description="Item processing status")
+    state_province: str | None = Field(default=None, description="Resolved state/province code")
+    county: str | None = Field(default=None, description="Resolved county name")
+    energy_technology: str | None = Field(default=None, description="Resolved energy technology")
+    clause_count: int | None = Field(default=None, description="Number of clauses extracted")
+    special_conditions_count: int | None = Field(default=None, description="Number of special conditions extracted")
+    duration_seconds: float | None = Field(default=None, description="Processing latency in seconds")
+    token_usage_total: int | None = Field(default=None, description="Total tokens consumed for document")
+    error_message: str | None = Field(default=None, description="Failure reason or exception trace if failed")
+    started_at: str | None = Field(default=None, description="UTC start timestamp")
+    completed_at: str | None = Field(default=None, description="UTC completion timestamp")
+    updated_at: str = Field(default_factory=utc_now_iso, description="UTC update timestamp")
+
+
+def normalize_inbox_uri(uri: str) -> str:
+    """Normalize GCS prefix or local directory path."""
+    uri = (uri or "").strip()
+    if not uri:
+        return ""
+    if uri.startswith("gs://"):
+        return uri
+    # If it starts with local path indicators, keep it local
+    if uri.startswith(("/", "./", "../", "~")) or (len(uri) > 1 and uri[1] == ":"):
+        return uri
+    # If the path exists locally, keep it as local
+    if Path(uri).exists():
+        return uri
+    # Otherwise, assume GCS prefix and ensure it has gs://
+    return f"gs://{uri}"
+
+
+class BatchScanRequest(BaseModel):
+    gcs_prefix: str = Field(default="", description="GCS prefix (gs://bucket/path/) or local directory path")
+    source_uri: str | None = Field(default=None, description="Alias for gcs_prefix")
+
+    @model_validator(mode="before")
+    @classmethod
+    def resolve_prefix(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            raw = data.get("gcs_prefix") or data.get("source_uri") or ""
+            norm = normalize_inbox_uri(raw)
+            data["gcs_prefix"] = norm
+            data["source_uri"] = norm
+        return data
+
+
+class BatchScanResponse(BaseModel):
+    gcs_prefix: str
+    total_files: int
+    valid_pdfs: int
+    already_ingested: int
+    pending_files: list[str] = Field(default_factory=list)
+    completed_files: list[str] = Field(default_factory=list)
+    invalid_extension: int = Field(default=0)
+
+    @computed_field  # type: ignore[misc]
+    @property
+    def total_files_found(self) -> int:
+        return self.total_files
+
+    @computed_field  # type: ignore[misc]
+    @property
+    def pending_contracts(self) -> int:
+        return len(self.pending_files)
+
+    @computed_field  # type: ignore[misc]
+    @property
+    def files_to_process(self) -> list[str]:
+        return self.pending_files
+
+
+class BatchLaunchRequest(BaseModel):
+    gcs_prefix: str = Field(default="", description="GCS prefix (gs://bucket/path/) or local directory path")
+    source_uri: str | None = Field(default=None, description="Alias for gcs_prefix")
+    concurrency: int = Field(default=5, ge=1, le=10, description="Worker pool concurrency (default 5)")
+    force_reprocess: bool = Field(default=False, description="Whether to reprocess already ingested files")
+    auto_consolidate: bool = Field(default=True, description="Whether to consolidate projects")
+
+    @model_validator(mode="before")
+    @classmethod
+    def resolve_prefix(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            raw = data.get("gcs_prefix") or data.get("source_uri") or ""
+            norm = normalize_inbox_uri(raw)
+            data["gcs_prefix"] = norm
+            data["source_uri"] = norm
+        return data
+
+
+class BatchLaunchResponse(BaseModel):
+    job_id: str
+    status: BatchJobStatus
+    gcs_prefix: str
+    total_files: int
+    concurrency: int
+    message: str = "Batch job initialized"
+
+    @computed_field  # type: ignore[misc]
+    @property
+    def total_contracts(self) -> int:
+        return self.total_files
+
+
+class BatchJobDetailResponse(BaseModel):
+    job: BatchJobRow
+    items: list[BatchJobItemRow] = Field(default_factory=list)
+
+
+class BatchRetryResponse(BaseModel):
+    job_id: str
+    re_queued_count: int
+    status: BatchJobStatus
+    message: str
+
+    @computed_field  # type: ignore[misc]
+    @property
+    def retried_items(self) -> int:
+        return self.re_queued_count
+
+
+BATCH_JOBS_COLUMNS: list[str] = list(BatchJobRow.model_fields.keys())
+BATCH_JOB_ITEMS_COLUMNS: list[str] = list(BatchJobItemRow.model_fields.keys())
 
 
 

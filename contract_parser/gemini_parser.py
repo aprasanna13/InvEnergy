@@ -535,6 +535,17 @@ class GeminiContractParser:
                 landowner_id=landowner_id,
             )
 
+    def discover_structure(
+        self,
+        *,
+        gcs_pdf_uri: str = "",
+        pdf_bytes: bytes | None = None,
+        total_pages: int | None = None,
+    ) -> ContractStructureIndex:
+        """Pass 1: Discover structural index and geolocation/technology metadata."""
+        pdf_part = self._build_pdf_part(gcs_pdf_uri=gcs_pdf_uri, pdf_bytes=pdf_bytes)
+        return self._discover_contract_structure(pdf_part, total_pages=total_pages)
+
     def extract(
         self,
         *,
@@ -543,6 +554,7 @@ class GeminiContractParser:
         pdf_bytes: bytes | None = None,
         project_id: str = "prj_cedar_lantern_wind",
         landowner_id: str | None = None,
+        structure_index: ContractStructureIndex | None = None,
     ) -> GeminiContractExtraction:
         """Extract structured contract hierarchy using Option 3A Semantic Zone Multi-Pass Pipeline."""
         with tracer.start_as_current_span("contract_parser.extract") as span:
@@ -563,21 +575,24 @@ class GeminiContractParser:
                     landowner_id=landowner_id,
                 )
 
-            # Pass 1: Structure & Zone Discovery
-            try:
-                index = self._discover_contract_structure(pdf_part)
-            except Exception as disc_exc:
-                logger.warning(
-                    "Pass 1 structural discovery failed: %s. Gracefully degrading to single-pass extraction.",
-                    disc_exc,
-                )
-                return self._extract_single_pass(
-                    pdf_part=pdf_part,
-                    document_id=document_id,
-                    gcs_pdf_uri=gcs_pdf_uri,
-                    project_id=project_id,
-                    landowner_id=landowner_id,
-                )
+            # Pass 1: Structure & Zone Discovery (or use pre-discovered structure_index)
+            if structure_index is not None:
+                index = structure_index
+            else:
+                try:
+                    index = self._discover_contract_structure(pdf_part)
+                except Exception as disc_exc:
+                    logger.warning(
+                        "Pass 1 structural discovery failed: %s. Gracefully degrading to single-pass extraction.",
+                        disc_exc,
+                    )
+                    return self._extract_single_pass(
+                        pdf_part=pdf_part,
+                        document_id=document_id,
+                        gcs_pdf_uri=gcs_pdf_uri,
+                        project_id=project_id,
+                        landowner_id=landowner_id,
+                    )
 
             logger.info(
                 "Pass 1 discovered '%s' (body pp. %d–%d, %d exhibits, %d signers)",
@@ -1541,4 +1556,8 @@ def normalize_and_enrich_extraction(
 
     extraction.clauses = sort_clauses_in_document_order(extraction.clauses)
     return extraction
+
+
+HierarchicalContractParser = GeminiContractParser
+ContractParser = GeminiContractParser
 

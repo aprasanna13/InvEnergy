@@ -150,3 +150,21 @@ QUALIFY ROW_NUMBER() OVER (
     ORDER BY created_at DESC
 ) = 1;
 
+-- 14. Active Batch Jobs Deduplicated View
+CREATE OR REPLACE VIEW `contract_intelligence.v_active_batch_jobs` AS
+SELECT *
+FROM `contract_intelligence.batch_jobs`
+QUALIFY ROW_NUMBER() OVER (
+    PARTITION BY job_id
+    ORDER BY updated_at DESC
+) = 1;
+
+-- 15. Active Batch Job Items Deduplicated View
+CREATE OR REPLACE VIEW `contract_intelligence.v_active_batch_job_items` AS
+SELECT *
+FROM `contract_intelligence.batch_job_items`
+QUALIFY ROW_NUMBER() OVER (
+    PARTITION BY item_id
+    ORDER BY updated_at DESC
+) = 1;
+

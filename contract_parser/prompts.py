@@ -16,13 +16,16 @@ Identify:
 1. `document_title`: Formal title of the contract (e.g. "SOLAR LEASE AND EASEMENT AGREEMENT", "WIND ENERGY LEASE", "ACCOMMODATION AGREEMENT").
 2. `grantor_landowner_name`: Canonical grantor, landowner, property owner, or accommodating party counterparty name stated in the preamble/title.
 3. `grantee_entity_name`: Canonical grantee, developer subsidiary, or project company counterparty name stated in the preamble/title.
-4. `effective_date`: Execution or effective date stated in the agreement (e.g. "November 14, 2018").
-5. `has_recitals`: Boolean (true if the agreement contains formal "WHEREAS" recitals, false if it transitions directly from preamble into numbered Section 1).
-6. `body_start_page`: 1-indexed physical PDF page where the agreement body begins (typically 1).
-7. `body_end_page`: 1-indexed physical PDF page where the main agreement body ends before signature blocks or exhibits.
-8. `signature_start_page` & `signature_end_page`: Physical PDF page(s) containing handwritten/typed signature blocks and notary acknowledgments.
-9. `signers`: List of each signature block (party name, signer name, signer title, physical page number).
-10. `exhibits`: List of all attached Exhibits, Schedules, or Appendices with their exact physical page intervals (`page_start` to `page_end`), titles, and modality (`PROSE_CLAUSES`, `TABULAR_SCHEDULE`, `PROPERTY_DESCRIPTION`, `EXTERNAL_INSTRUMENT_LIST`, or `VISUAL_DRAWING_OR_MAP_STUB`).
+4. `state_province`: Two-letter US state code or province jurisdiction mentioned in preamble/recitals (e.g. 'IL', 'OH', 'TX', 'KS', 'NV').
+5. `county`: County or parish jurisdiction mentioned in preamble/recitals (e.g. 'McLean', 'Hardin', 'Pecos', 'Finney', 'Churchill').
+6. `energy_technology`: Renewable energy technology mentioned in title, preamble, or clauses ('ONSHORE_WIND', 'SOLAR', 'STORAGE', 'TRANSMISSION', or 'GEOTHERMAL').
+7. `effective_date`: Execution or effective date stated in the agreement (e.g. "November 14, 2018").
+8. `has_recitals`: Boolean (true if the agreement contains formal "WHEREAS" recitals, false if it transitions directly from preamble into numbered Section 1).
+9. `body_start_page`: 1-indexed physical PDF page where the agreement body begins (typically 1).
+10. `body_end_page`: 1-indexed physical PDF page where the main agreement body ends before signature blocks or exhibits.
+11. `signature_start_page` & `signature_end_page`: Physical PDF page(s) containing handwritten/typed signature blocks and notary acknowledgments.
+12. `signers`: List of each signature block (party name, signer name, signer title, physical page number).
+13. `exhibits`: List of all attached Exhibits, Schedules, or Appendices with their exact physical page intervals (`page_start` to `page_end`), titles, and modality (`PROSE_CLAUSES`, `TABULAR_SCHEDULE`, `PROPERTY_DESCRIPTION`, `EXTERNAL_INSTRUMENT_LIST`, or `VISUAL_DRAWING_OR_MAP_STUB`).
 
 Be precise with physical 1-indexed PDF page boundaries. Do not guess page numbers."""
 

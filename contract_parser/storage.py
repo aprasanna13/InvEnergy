@@ -20,6 +20,8 @@ from contract_parser.bundle_assembler import (
 from contract_parser.config import PipelineConfig
 from contract_parser.gemini_parser import _make_landowner_id, canonical_party_key
 from contract_parser.schemas import (
+    BATCH_JOB_ITEMS_COLUMNS,
+    BATCH_JOBS_COLUMNS,
     CLAUSE_CSV_COLUMNS,
     DEFINED_TERM_CSV_COLUMNS,
     DND_SIGNOFF_CSV_COLUMNS,
@@ -30,6 +32,10 @@ from contract_parser.schemas import (
     SPECIAL_CONDITION_CSV_COLUMNS,
     TEMPLATE_CLAUSES_COLUMNS,
     TEMPLATE_REGISTRY_COLUMNS,
+    BatchItemStatus,
+    BatchJobItemRow,
+    BatchJobRow,
+    BatchJobStatus,
     ClauseReviewRequest,
     ClauseRow,
     ClauseVarianceDetailRow,
@@ -141,6 +147,7 @@ BQ_PROJECTS_SCHEMA = [
     bigquery.SchemaField("document_count", "INT64", mode="REQUIRED"),
     bigquery.SchemaField("special_conditions_count", "INT64", mode="REQUIRED"),
     bigquery.SchemaField("flagged_node_count", "INT64", mode="REQUIRED"),
+    bigquery.SchemaField("created_at", "TIMESTAMP", mode="NULLABLE"),
     bigquery.SchemaField("updated_at", "TIMESTAMP", mode="REQUIRED"),
 ]
 
@@ -358,6 +365,46 @@ BQ_CLAUSE_VARIANCE_DETAILS_SCHEMA = [
     bigquery.SchemaField("created_at", "TIMESTAMP", mode="REQUIRED"),
 ]
 
+BQ_BATCH_JOBS_SCHEMA = [
+    bigquery.SchemaField("job_id", "STRING", mode="REQUIRED"),
+    bigquery.SchemaField("gcs_prefix", "STRING", mode="REQUIRED"),
+    bigquery.SchemaField("total_files", "INT64", mode="REQUIRED"),
+    bigquery.SchemaField("processed_files", "INT64", mode="REQUIRED"),
+    bigquery.SchemaField("success_count", "INT64", mode="REQUIRED"),
+    bigquery.SchemaField("failure_count", "INT64", mode="REQUIRED"),
+    bigquery.SchemaField("status", "STRING", mode="REQUIRED"),
+    bigquery.SchemaField("started_at", "TIMESTAMP", mode="REQUIRED"),
+    bigquery.SchemaField("completed_at", "TIMESTAMP", mode="NULLABLE"),
+    bigquery.SchemaField("total_tokens_consumed", "INT64", mode="REQUIRED"),
+    bigquery.SchemaField("prompt_tokens_consumed", "INT64", mode="REQUIRED"),
+    bigquery.SchemaField("completion_tokens_consumed", "INT64", mode="REQUIRED"),
+    bigquery.SchemaField("triggered_by", "STRING", mode="NULLABLE"),
+    bigquery.SchemaField("error_summary", "STRING", mode="NULLABLE"),
+    bigquery.SchemaField("updated_at", "TIMESTAMP", mode="REQUIRED"),
+]
+
+BQ_BATCH_JOB_ITEMS_SCHEMA = [
+    bigquery.SchemaField("item_id", "STRING", mode="REQUIRED"),
+    bigquery.SchemaField("job_id", "STRING", mode="REQUIRED"),
+    bigquery.SchemaField("gcs_uri", "STRING", mode="REQUIRED"),
+    bigquery.SchemaField("filename", "STRING", mode="REQUIRED"),
+    bigquery.SchemaField("document_id", "STRING", mode="NULLABLE"),
+    bigquery.SchemaField("project_id", "STRING", mode="NULLABLE"),
+    bigquery.SchemaField("landowner_id", "STRING", mode="NULLABLE"),
+    bigquery.SchemaField("status", "STRING", mode="REQUIRED"),
+    bigquery.SchemaField("state_province", "STRING", mode="NULLABLE"),
+    bigquery.SchemaField("county", "STRING", mode="NULLABLE"),
+    bigquery.SchemaField("energy_technology", "STRING", mode="NULLABLE"),
+    bigquery.SchemaField("clause_count", "INT64", mode="NULLABLE"),
+    bigquery.SchemaField("special_conditions_count", "INT64", mode="NULLABLE"),
+    bigquery.SchemaField("duration_seconds", "FLOAT64", mode="NULLABLE"),
+    bigquery.SchemaField("token_usage_total", "INT64", mode="NULLABLE"),
+    bigquery.SchemaField("error_message", "STRING", mode="NULLABLE"),
+    bigquery.SchemaField("started_at", "TIMESTAMP", mode="NULLABLE"),
+    bigquery.SchemaField("completed_at", "TIMESTAMP", mode="NULLABLE"),
+    bigquery.SchemaField("updated_at", "TIMESTAMP", mode="REQUIRED"),
+]
+
 
 
 def generate_template_slug(
@@ -427,6 +474,7 @@ class ContractStorageService:
                     document_count INTEGER NOT NULL DEFAULT 0,
                     special_conditions_count INTEGER NOT NULL DEFAULT 0,
                     flagged_node_count INTEGER NOT NULL DEFAULT 0,
+                    created_at TEXT NOT NULL DEFAULT '',
                     updated_at TEXT NOT NULL
                 )
                 """
@@ -678,6 +726,70 @@ class ContractStorageService:
                 )
                 """
             )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS batch_jobs (
+                    job_id TEXT NOT NULL,
+                    gcs_prefix TEXT NOT NULL,
+                    total_files INTEGER NOT NULL,
+                    processed_files INTEGER NOT NULL,
+                    success_count INTEGER NOT NULL,
+                    failure_count INTEGER NOT NULL,
+                    status TEXT NOT NULL,
+                    started_at TEXT NOT NULL,
+                    completed_at TEXT,
+                    total_tokens_consumed INTEGER NOT NULL DEFAULT 0,
+                    prompt_tokens_consumed INTEGER NOT NULL DEFAULT 0,
+                    completion_tokens_consumed INTEGER NOT NULL DEFAULT 0,
+                    triggered_by TEXT,
+                    error_summary TEXT,
+                    updated_at TEXT NOT NULL
+                )
+                """
+            )
+            conn.execute(
+                """
+                CREATE VIEW IF NOT EXISTS v_active_batch_jobs AS
+                SELECT * FROM (
+                    SELECT *, ROW_NUMBER() OVER (PARTITION BY job_id ORDER BY updated_at DESC) AS rn
+                    FROM batch_jobs
+                ) WHERE rn = 1
+                """
+            )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS batch_job_items (
+                    item_id TEXT NOT NULL,
+                    job_id TEXT NOT NULL,
+                    gcs_uri TEXT NOT NULL,
+                    filename TEXT NOT NULL,
+                    document_id TEXT,
+                    project_id TEXT,
+                    landowner_id TEXT,
+                    status TEXT NOT NULL,
+                    state_province TEXT,
+                    county TEXT,
+                    energy_technology TEXT,
+                    clause_count INTEGER,
+                    special_conditions_count INTEGER,
+                    duration_seconds REAL,
+                    token_usage_total INTEGER,
+                    error_message TEXT,
+                    started_at TEXT,
+                    completed_at TEXT,
+                    updated_at TEXT NOT NULL
+                )
+                """
+            )
+            conn.execute(
+                """
+                CREATE VIEW IF NOT EXISTS v_active_batch_job_items AS
+                SELECT * FROM (
+                    SELECT *, ROW_NUMBER() OVER (PARTITION BY item_id ORDER BY updated_at DESC) AS rn
+                    FROM batch_job_items
+                ) WHERE rn = 1
+                """
+            )
 
 
             # Idempotent ALTER TABLE migrations for pre-CR-1 & pre-CR-2 SQLite databases
@@ -748,6 +860,13 @@ class ContractStorageService:
                 conn.execute(
                     "ALTER TABLE special_conditions ADD COLUMN landowner_id TEXT NOT NULL DEFAULT 'lnd_unassigned'"
                 )
+
+            proj_cols = {
+                row[1] for row in conn.execute("PRAGMA table_info(projects)").fetchall()
+            }
+            if "created_at" not in proj_cols:
+                conn.execute("ALTER TABLE projects ADD COLUMN created_at TEXT")
+                conn.execute("UPDATE projects SET created_at = updated_at WHERE created_at IS NULL OR created_at = ''")
         self._local_db_initialized = True
 
     def ensure_bq_tables(self) -> None:
@@ -772,6 +891,8 @@ class ContractStorageService:
                 "template_clauses": (BQ_TEMPLATE_CLAUSES_SCHEMA, "template_id, node_id", "created_at"),
                 "contract_variances": (BQ_CONTRACT_VARIANCES_SCHEMA, "variance_id", "created_at"),
                 "clause_variance_details": (BQ_CLAUSE_VARIANCE_DETAILS_SCHEMA, "detail_id", "created_at"),
+                "batch_jobs": (BQ_BATCH_JOBS_SCHEMA, "job_id", "updated_at"),
+                "batch_job_items": (BQ_BATCH_JOB_ITEMS_SCHEMA, "item_id", "updated_at"),
             }
 
             for table_name, (schema, partition_keys, order_by_col) in table_specs.items():
@@ -810,6 +931,21 @@ class ContractStorageService:
                         self.bq_client.update_table(live_view, ["view_query"])
                 except Exception as view_exc:
                     logger.warning("BigQuery view update warning on %s: %s", view_id, view_exc)
+
+            # Explicit view aliases for batch jobs and items (CR-12 specification)
+            for v_name, t_name, p_key in [
+                ("v_active_batch_jobs", "batch_jobs", "job_id"),
+                ("v_active_batch_job_items", "batch_job_items", "item_id"),
+            ]:
+                alias_view_id = f"{self.config.bq_dataset_fqn}.{v_name}"
+                target_table_id = f"{self.config.bq_dataset_fqn}.{t_name}"
+                alias_sql = f"SELECT * FROM `{target_table_id}` QUALIFY ROW_NUMBER() OVER (PARTITION BY {p_key} ORDER BY updated_at DESC) = 1"
+                alias_table = bigquery.Table(alias_view_id)
+                alias_table.view_query = alias_sql
+                try:
+                    self.bq_client.create_table(alias_table, exists_ok=True)
+                except Exception as alias_exc:
+                    logger.warning("BigQuery view alias warning on %s: %s", alias_view_id, alias_exc)
 
             self._bq_tables_ensured = True
         except Exception as exc:
@@ -872,6 +1008,15 @@ class ContractStorageService:
             for blob in bucket.list_blobs(prefix=prefix)
             if blob.name.lower().endswith(".pdf")
         ]
+
+    @staticmethod
+    def _split_gcs_uri(gcs_uri: str) -> tuple[str, str]:
+        """Split a gs://bucket/path URI into (bucket_name, blob_name)."""
+        clean = gcs_uri.removeprefix("gs://")
+        if "/" in clean:
+            bucket, blob = clean.split("/", 1)
+            return bucket, blob
+        return clean, ""
 
     def download_gcs_uri(self, gcs_uri: str) -> tuple[bytes, str]:
         """Download a gs://bucket/path.pdf URI and return (pdf_bytes, filename)."""
@@ -1513,7 +1658,10 @@ class ContractStorageService:
                 """
             ).fetchall()
         for r in rows:
-            p = ProjectRow.model_validate({k: r[k] for k in PROJECT_CSV_COLUMNS})
+            data = {k: r[k] for k in PROJECT_CSV_COLUMNS if k in r.keys()}
+            if "created_at" not in data or not data["created_at"]:
+                data["created_at"] = data.get("updated_at") or utc_now_iso()
+            p = ProjectRow.model_validate(data)
             projects_by_id[p.project_id] = p
 
         if self.config.use_bigquery:
@@ -1532,6 +1680,8 @@ class ContractStorageService:
                         if hasattr(val, "isoformat"):
                             val = val.isoformat()
                         row_dict[k] = val
+                    if "created_at" not in row_dict or not row_dict["created_at"]:
+                        row_dict["created_at"] = row_dict.get("updated_at") or utc_now_iso()
                     bq_proj = ProjectRow.model_validate(row_dict)
                     local_proj = projects_by_id.get(bq_proj.project_id)
                     if local_proj is None or str(bq_proj.updated_at) >= str(local_proj.updated_at):
@@ -3470,4 +3620,394 @@ class ContractStorageService:
                 summary=summary,
                 details=details,
             )
+
+    # -------------------------------------------------------------------------
+    # CR-12: Batch Ingestion & Historical Discovery
+    # -------------------------------------------------------------------------
+
+    def save_batch_job(self, job: BatchJobRow, *, sqlite_only: bool = False) -> None:
+        """Append or update a BatchJobRow in SQLite and BigQuery."""
+        self._append_table_rows(
+            "batch_jobs",
+            BATCH_JOBS_COLUMNS,
+            [job.model_dump(mode="json")],
+            sqlite_only=sqlite_only,
+        )
+
+    def get_batch_job(self, job_id: str) -> BatchJobRow:
+        """Fetch the latest version of a BatchJobRow by job_id."""
+        self._ensure_local_dirs_and_db()
+        with sqlite3.connect(self.local_db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            row = conn.execute(
+                "SELECT * FROM v_active_batch_jobs WHERE job_id = ? LIMIT 1",
+                (job_id,),
+            ).fetchone()
+            if row:
+                data = {k: row[k] for k in BATCH_JOBS_COLUMNS if k in row.keys()}
+                for int_f in ("total_files", "processed_files", "success_count", "failure_count", "total_tokens_consumed", "concurrency_limit"):
+                    if int_f in data and data[int_f] is not None:
+                        try:
+                            data[int_f] = int(data[int_f])
+                        except (ValueError, TypeError):
+                            data[int_f] = 0
+                return BatchJobRow.model_validate(data)
+
+        if self.config.use_bigquery:
+            try:
+                self.ensure_bq_tables()
+                sql = f"SELECT * FROM `{self.config.bq_dataset_fqn}.v_active_batch_jobs` WHERE job_id = @jid LIMIT 1"
+                job_config = bigquery.QueryJobConfig(
+                    query_parameters=[bigquery.ScalarQueryParameter("jid", "STRING", job_id)]
+                )
+                for r in self.bq_client.query(sql, job_config=job_config).result():
+                    row_dict = {
+                        k: (r[k].isoformat() if hasattr(r[k], "isoformat") else r[k])
+                        for k in BATCH_JOBS_COLUMNS
+                        if k in r.keys()
+                    }
+                    for int_f in ("total_files", "processed_files", "success_count", "failure_count", "total_tokens_consumed", "concurrency_limit"):
+                        if int_f in row_dict and row_dict[int_f] is not None:
+                            try:
+                                row_dict[int_f] = int(row_dict[int_f])
+                            except (ValueError, TypeError):
+                                row_dict[int_f] = 0
+                    return BatchJobRow.model_validate(row_dict)
+            except Exception as exc:
+                logger.warning("BigQuery get_batch_job fallback: %s", exc)
+
+        raise KeyError(f"Batch job {job_id!r} not found")
+
+    def list_batch_jobs(self, limit: int = 50) -> list[BatchJobRow]:
+        """Fetch latest active batch jobs ordered by started_at DESC."""
+        self._ensure_local_dirs_and_db()
+        jobs: dict[str, BatchJobRow] = {}
+        with sqlite3.connect(self.local_db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            rows = conn.execute(
+                "SELECT * FROM v_active_batch_jobs ORDER BY started_at DESC LIMIT ?",
+                (limit,),
+            ).fetchall()
+            for r in rows:
+                data = {k: r[k] for k in BATCH_JOBS_COLUMNS if k in r.keys()}
+                for int_f in ("total_files", "processed_files", "success_count", "failure_count", "total_tokens_consumed", "concurrency_limit"):
+                    if int_f in data and data[int_f] is not None:
+                        try:
+                            data[int_f] = int(data[int_f])
+                        except (ValueError, TypeError):
+                            data[int_f] = 0
+                j = BatchJobRow.model_validate(data)
+                jobs[j.job_id] = j
+
+        if self.config.use_bigquery:
+            try:
+                self.ensure_bq_tables()
+                sql = f"SELECT * FROM `{self.config.bq_dataset_fqn}.v_active_batch_jobs` ORDER BY started_at DESC LIMIT {limit}"
+                for r in self.bq_client.query(sql).result():
+                    row_dict = {
+                        k: (r[k].isoformat() if hasattr(r[k], "isoformat") else r[k])
+                        for k in BATCH_JOBS_COLUMNS
+                        if k in r.keys()
+                    }
+                    for int_f in ("total_files", "processed_files", "success_count", "failure_count", "total_tokens_consumed", "concurrency_limit"):
+                        if int_f in row_dict and row_dict[int_f] is not None:
+                            try:
+                                row_dict[int_f] = int(row_dict[int_f])
+                            except (ValueError, TypeError):
+                                row_dict[int_f] = 0
+                    bj = BatchJobRow.model_validate(row_dict)
+                    if bj.job_id not in jobs or str(bj.updated_at) >= str(jobs[bj.job_id].updated_at):
+                        jobs[bj.job_id] = bj
+            except Exception as exc:
+                logger.warning("BigQuery list_batch_jobs fallback: %s", exc)
+
+        return sorted(jobs.values(), key=lambda j: j.started_at, reverse=True)[:limit]
+
+    def save_batch_job_item(self, item: BatchJobItemRow, *, sqlite_only: bool = False) -> None:
+        """Append or update a BatchJobItemRow in SQLite and BigQuery."""
+        self._append_table_rows(
+            "batch_job_items",
+            BATCH_JOB_ITEMS_COLUMNS,
+            [item.model_dump(mode="json")],
+            sqlite_only=sqlite_only,
+        )
+
+    def get_batch_job_items(self, job_id: str) -> list[BatchJobItemRow]:
+        """Fetch all active items for a batch job."""
+        self._ensure_local_dirs_and_db()
+        items: dict[str, BatchJobItemRow] = {}
+        with sqlite3.connect(self.local_db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            rows = conn.execute(
+                "SELECT * FROM v_active_batch_job_items WHERE job_id = ? ORDER BY started_at ASC, item_id ASC",
+                (job_id,),
+            ).fetchall()
+            for r in rows:
+                data = {k: r[k] for k in BATCH_JOB_ITEMS_COLUMNS if k in r.keys()}
+                for int_f in ("clause_count", "special_conditions_count", "token_usage_total"):
+                    if int_f in data and data[int_f] is not None:
+                        try:
+                            data[int_f] = int(data[int_f])
+                        except (ValueError, TypeError):
+                            data[int_f] = 0
+                it = BatchJobItemRow.model_validate(data)
+                items[it.item_id] = it
+
+        if self.config.use_bigquery:
+            try:
+                self.ensure_bq_tables()
+                sql = f"SELECT * FROM `{self.config.bq_dataset_fqn}.v_active_batch_job_items` WHERE job_id = @jid ORDER BY started_at ASC, item_id ASC"
+                job_config = bigquery.QueryJobConfig(
+                    query_parameters=[bigquery.ScalarQueryParameter("jid", "STRING", job_id)]
+                )
+                for r in self.bq_client.query(sql, job_config=job_config).result():
+                    row_dict = {
+                        k: (r[k].isoformat() if hasattr(r[k], "isoformat") else r[k])
+                        for k in BATCH_JOB_ITEMS_COLUMNS
+                        if k in r.keys()
+                    }
+                    for int_f in ("clause_count", "special_conditions_count", "token_usage_total"):
+                        if int_f in row_dict and row_dict[int_f] is not None:
+                            try:
+                                row_dict[int_f] = int(row_dict[int_f])
+                            except (ValueError, TypeError):
+                                row_dict[int_f] = 0
+                    it = BatchJobItemRow.model_validate(row_dict)
+                    if it.item_id not in items or str(it.updated_at) >= str(items[it.item_id].updated_at):
+                        items[it.item_id] = it
+            except Exception as exc:
+                logger.warning("BigQuery get_batch_job_items fallback: %s", exc)
+
+        return sorted(items.values(), key=lambda i: i.started_at or i.item_id)
+
+    def get_batch_job_item(self, item_id: str) -> BatchJobItemRow:
+        """Fetch a specific BatchJobItemRow by item_id."""
+        self._ensure_local_dirs_and_db()
+        with sqlite3.connect(self.local_db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            row = conn.execute(
+                "SELECT * FROM v_active_batch_job_items WHERE item_id = ? LIMIT 1",
+                (item_id,),
+            ).fetchone()
+            if row:
+                data = {k: row[k] for k in BATCH_JOB_ITEMS_COLUMNS if k in row.keys()}
+                for int_f in ("clause_count", "special_conditions_count", "token_usage_total"):
+                    if int_f in data and data[int_f] is not None:
+                        try:
+                            data[int_f] = int(data[int_f])
+                        except (ValueError, TypeError):
+                            data[int_f] = 0
+                return BatchJobItemRow.model_validate(data)
+
+        if self.config.use_bigquery:
+            try:
+                self.ensure_bq_tables()
+                sql = f"SELECT * FROM `{self.config.bq_dataset_fqn}.v_active_batch_job_items` WHERE item_id = @iid LIMIT 1"
+                job_config = bigquery.QueryJobConfig(
+                    query_parameters=[bigquery.ScalarQueryParameter("iid", "STRING", item_id)]
+                )
+                for r in self.bq_client.query(sql, job_config=job_config).result():
+                    row_dict = {
+                        k: (r[k].isoformat() if hasattr(r[k], "isoformat") else r[k])
+                        for k in BATCH_JOB_ITEMS_COLUMNS
+                        if k in r
+                    }
+                    return BatchJobItemRow.model_validate(row_dict)
+            except Exception as exc:
+                logger.warning("BigQuery get_batch_job_item fallback: %s", exc)
+
+        raise KeyError(f"Batch item {item_id!r} not found")
+
+    def purge_partial_document(self, document_id: str) -> None:
+        """Purge any partial or corrupted records for document_id across Lakehouse tables."""
+        self._ensure_local_dirs_and_db()
+        with sqlite3.connect(self.local_db_path) as conn:
+            for tbl in (
+                "documents",
+                "clauses",
+                "defined_terms",
+                "exhibits_catalog",
+                "special_conditions",
+                "dnd_checklist_signoffs",
+                "contract_variances",
+                "clause_variance_details",
+            ):
+                try:
+                    conn.execute(f"DELETE FROM {tbl} WHERE document_id = ?", (document_id,))
+                except Exception:
+                    pass
+
+        if self.config.use_bigquery:
+            try:
+                for tbl in (
+                    "documents",
+                    "clauses",
+                    "defined_terms",
+                    "exhibits_catalog",
+                    "special_conditions",
+                    "dnd_checklist_signoffs",
+                    "contract_variances",
+                    "clause_variance_details",
+                ):
+                    query = f"DELETE FROM `{self.config.bq_dataset_fqn}.{tbl}` WHERE document_id = @doc_id"
+                    job_config = bigquery.QueryJobConfig(
+                        query_parameters=[bigquery.ScalarQueryParameter("doc_id", "STRING", document_id)]
+                    )
+                    self.bq_client.query(query, job_config=job_config).result()
+            except Exception as exc:
+                logger.warning("BigQuery purge_partial_document warning on %s: %s", document_id, exc)
+
+    @staticmethod
+    def normalize_entity_name(name: str | None) -> str:
+        """Apply deterministic legal entity cleanup filter per Section 3 of CR-12."""
+        if not name:
+            return ""
+        text = name.upper()
+        # Punctuation Stripping first (e.g. L.L.C. -> L L C)
+        text = re.sub(r"[,.\-_'\"]", " ", text)
+        # Corporate & Phase Token Stripping
+        entity_cleanup_regex = re.compile(
+            r"\b(LLC|L\s+L\s+C|CORP|CORPORATION|INC|INCORPORATED|CO|COMPANY|HOLDINGS|PHASE\s*(?:[IVX\d]+))\b",
+            re.IGNORECASE,
+        )
+        text = entity_cleanup_regex.sub(" ", text)
+        # Whitespace Collapsing and lowercase canonical form
+        return re.sub(r"\s+", " ", text).strip().lower()
+
+    def find_project_by_geo_or_name(
+        self,
+        state: str | None,
+        county: str | None,
+        energy_technology: str | EnergyTechnology,
+        grantee_name: str | None = None,
+        project_name: str | None = None,
+    ) -> ProjectRow | None:
+        """Resolve project ownership using CR-12 deterministic resolution cascade.
+
+        Check 1: Name match in State (ORDER BY created_at ASC LIMIT 1) - first-inserted cross-county anchor.
+        Check 2: Location match (State + County + Technology).
+        """
+        all_projects = self.list_projects()
+        norm_state = (state or "").strip().upper()
+        norm_county = (county or "").strip().upper()
+        norm_tech = (
+            energy_technology.value
+            if isinstance(energy_technology, EnergyTechnology)
+            else str(energy_technology).strip().upper()
+        )
+
+        # Check 1: Root Name Anchor Match anywhere in the state
+        candidate_names = [grantee_name, project_name]
+        norm_candidates = [self.normalize_entity_name(n) for n in candidate_names if n]
+        norm_candidates = [c for c in norm_candidates if len(c) >= 3]
+
+        if norm_candidates and norm_state:
+            state_projects = [
+                p for p in all_projects
+                if (p.state_province or "").strip().upper() == norm_state
+            ]
+            matches: list[ProjectRow] = []
+            for proj in state_projects:
+                proj_norm = self.normalize_entity_name(proj.project_name)
+                for cand in norm_candidates:
+                    if cand in proj_norm or proj_norm in cand:
+                        matches.append(proj)
+                        break
+            if matches:
+                # Option 3: Cross-county developments anchor strictly to earliest created_at project
+                sorted_matches = sorted(matches, key=lambda p: p.created_at or p.updated_at)
+                return sorted_matches[0]
+
+        # Check 2: (State + County + Technology) Match
+        if norm_state and norm_county:
+            for proj in all_projects:
+                p_state = (proj.state_province or "").strip().upper()
+                p_county = (proj.county or "").strip().upper()
+                p_tech = (
+                    proj.energy_technology.value
+                    if isinstance(proj.energy_technology, EnergyTechnology)
+                    else str(proj.energy_technology).strip().upper()
+                )
+                if p_state == norm_state and p_county == norm_county and p_tech == norm_tech:
+                    return proj
+
+        return None
+
+    def auto_create_project_for_location(
+        self,
+        state: str | None,
+        county: str | None,
+        energy_technology: str | EnergyTechnology,
+        grantee_name: str | None = None,
+    ) -> ProjectRow:
+        """Create a new canonical ProjectRow with deterministic synthetic ERP code per CR-12 Section 3."""
+        norm_tech = (
+            energy_technology
+            if isinstance(energy_technology, EnergyTechnology)
+            else EnergyTechnology(str(energy_technology).strip().upper())
+        )
+        tech_val = norm_tech.value
+        tech_abbr_map = {
+            "ONSHORE_WIND": "WND",
+            "SOLAR": "SOL",
+            "STORAGE": "STR",
+            "TRANSMISSION": "TRN",
+            "GEOTHERMAL": "GEO",
+        }
+        tech_abbr = tech_abbr_map.get(tech_val, "ENG")
+        tech_title_map = {
+            "ONSHORE_WIND": "Wind Energy",
+            "SOLAR": "Solar",
+            "STORAGE": "BESS Storage",
+            "TRANSMISSION": "Transmission",
+            "GEOTHERMAL": "Geothermal",
+        }
+        tech_title = tech_title_map.get(tech_val, "Clean Energy")
+
+        now_iso = utc_now_iso()
+
+        if not state or not county or state.strip().upper() in ("UNKNOWN", "US", ""):
+            # Missing Geolocation Fallback
+            project_id = f"prj_us_regional_{tech_val.lower()}"
+            existing = [p for p in self.list_projects() if p.project_id == project_id]
+            if existing:
+                return existing[0]
+            new_proj = ProjectRow(
+                project_id=project_id,
+                project_name=f"US Regional {tech_title} Center",
+                energy_technology=norm_tech,
+                erp_project_code=f"ERP-{tech_abbr}-AUTO",
+                state_province="US",
+                county="REGIONAL",
+                target_capacity_mw=100.0,
+                created_at=now_iso,
+                updated_at=now_iso,
+            )
+        else:
+            clean_state = state.strip().upper()
+            clean_county = county.strip().title()
+            county_slug = re.sub(r"[^a-zA-Z0-9]+", "_", clean_county.lower()).strip("_")
+            county_code = re.sub(r"[^a-zA-Z0-9]+", "", clean_county.upper())
+            project_id = f"prj_{clean_state.lower()}_{county_slug}_{tech_abbr.lower()}"
+            erp_code = f"ERP-{tech_abbr}-{clean_state}-{county_code}"
+            proj_name = f"{clean_county} County {tech_title} Center"
+
+            new_proj = ProjectRow(
+                project_id=project_id,
+                project_name=proj_name,
+                energy_technology=norm_tech,
+                erp_project_code=erp_code,
+                state_province=clean_state,
+                county=clean_county,
+                target_capacity_mw=150.0,
+                created_at=now_iso,
+                updated_at=now_iso,
+            )
+
+        self.append_project_row(new_proj)
+        return new_proj
+
+    def save_project(self, project: ProjectRow) -> None:
+        """Alias for append_project_row."""
+        self.append_project_row(project)
 

@@ -26,6 +26,7 @@ CREATE TABLE IF NOT EXISTS `contract_intelligence.projects` (
     document_count INT64 NOT NULL,
     special_conditions_count INT64 NOT NULL,
     flagged_node_count INT64 NOT NULL,
+    created_at TIMESTAMP,
     updated_at TIMESTAMP NOT NULL
 )
 CLUSTER BY project_id;
@@ -266,4 +267,50 @@ CREATE TABLE IF NOT EXISTS `contract_intelligence.clause_variance_details` (
 )
 PARTITION BY DATE(created_at)
 CLUSTER BY document_id, variance_id, canonical_path;
+
+-- 13. Batch Jobs Table (Run-Level Historical Batch State)
+CREATE TABLE IF NOT EXISTS `contract_intelligence.batch_jobs` (
+    job_id STRING NOT NULL,
+    gcs_prefix STRING NOT NULL,
+    total_files INT64 NOT NULL,
+    processed_files INT64 NOT NULL,
+    success_count INT64 NOT NULL,
+    failure_count INT64 NOT NULL,
+    status STRING NOT NULL,
+    started_at TIMESTAMP NOT NULL,
+    completed_at TIMESTAMP,
+    total_tokens_consumed INT64 NOT NULL,
+    prompt_tokens_consumed INT64 NOT NULL,
+    completion_tokens_consumed INT64 NOT NULL,
+    triggered_by STRING,
+    error_summary STRING,
+    updated_at TIMESTAMP NOT NULL
+)
+PARTITION BY DATE(started_at)
+CLUSTER BY job_id, status;
+
+-- 14. Batch Job Items Table (Document-Level Historical Batch Tracking)
+CREATE TABLE IF NOT EXISTS `contract_intelligence.batch_job_items` (
+    item_id STRING NOT NULL,
+    job_id STRING NOT NULL,
+    gcs_uri STRING NOT NULL,
+    filename STRING NOT NULL,
+    document_id STRING,
+    project_id STRING,
+    landowner_id STRING,
+    status STRING NOT NULL,
+    state_province STRING,
+    county STRING,
+    energy_technology STRING,
+    clause_count INT64,
+    special_conditions_count INT64,
+    duration_seconds FLOAT64,
+    token_usage_total INT64,
+    error_message STRING,
+    started_at TIMESTAMP,
+    completed_at TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL
+)
+PARTITION BY DATE(updated_at)
+CLUSTER BY job_id, status, document_id;
 

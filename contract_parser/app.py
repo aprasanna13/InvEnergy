@@ -8,6 +8,7 @@ from contextlib import asynccontextmanager
 import hashlib
 import json
 import logging
+import os
 import re
 import sqlite3
 import sys
@@ -28,6 +29,12 @@ from contract_parser.auth import (
     require_admin,
 )
 
+from contract_parser.batch import (
+    initialize_batch_job,
+    retry_failed_batch_items,
+    run_local_batch_pipeline,
+    scan_batch_inbox,
+)
 from contract_parser.config import PipelineConfig
 from contract_parser.gemini_parser import (
     ContractExtractorProtocol,
@@ -37,6 +44,15 @@ from contract_parser.gemini_parser import (
 from contract_parser.schemas import (
     AgentChatRequest,
     AgentChatResponse,
+    BatchJobDetailResponse,
+    BatchJobItemRow,
+    BatchJobRow,
+    BatchJobStatus,
+    BatchLaunchRequest,
+    BatchLaunchResponse,
+    BatchRetryResponse,
+    BatchScanRequest,
+    BatchScanResponse,
     ClauseReviewRequest,
     CreateDNDSignoffRequest,
     CreateProjectRequest,
@@ -1087,6 +1103,151 @@ def create_app(
         if hasattr(result, "model_dump"):
             return result.model_dump(mode="json")
         return result
+
+    # -------------------------------------------------------------------------
+    # CR-12: Batch Ingestion & Historical Discovery Endpoints
+    # -------------------------------------------------------------------------
+
+    @fastapi_app.post("/api/v1/batch/scan", response_model=BatchScanResponse)
+    async def batch_scan_endpoint(
+        request: BatchScanRequest,
+        current_user: UserContext = Depends(auth_dep),
+    ) -> BatchScanResponse:
+        """Pre-flight scan of GCS inbox or local directory using Option 4a metadata."""
+        active_store: ContractStorageService = fastapi_app.state.storage
+        try:
+            return scan_batch_inbox(request.gcs_prefix, active_store)
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+
+    @fastapi_app.post("/api/v1/batch/launch", status_code=202, response_model=BatchLaunchResponse)
+    async def batch_launch_endpoint(
+        request: BatchLaunchRequest,
+        current_user: UserContext = Depends(auth_dep),
+    ) -> BatchLaunchResponse:
+        """Launch asynchronous historical batch contract ingestion (Admin only)."""
+        require_admin(current_user)
+        active_store: ContractStorageService = fastapi_app.state.storage
+        cfg: PipelineConfig = fastapi_app.state.config
+
+        try:
+            job, items = initialize_batch_job(
+                gcs_prefix=request.gcs_prefix,
+                concurrency=request.concurrency,
+                storage_service=active_store,
+                config=cfg,
+                force_reprocess=request.force_reprocess,
+                triggered_by=current_user.email,
+            )
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail=f"Failed initializing batch job: {exc}")
+
+        use_local = os.getenv("USE_LOCAL_BATCH_RUNNER", "true").lower() in ("true", "1", "yes")
+        triggered_cloud_run = False
+
+        if not use_local and request.gcs_prefix.startswith("gs://"):
+            try:
+                import google.cloud.run_v2 as run_v2
+
+                gcp_proj = cfg.google_cloud_project
+                region = os.getenv("REGION", "us-central1")
+                job_client = run_v2.JobsClient()
+                run_req = run_v2.RunJobRequest(
+                    name=f"projects/{gcp_proj}/locations/{region}/jobs/contract-parser-batch",
+                    overrides=run_v2.RunJobRequest.Overrides(
+                        container_overrides=[
+                            run_v2.RunJobRequest.Overrides.ContainerOverride(
+                                args=[
+                                    "--job-id",
+                                    job.job_id,
+                                    "--gcs-prefix",
+                                    request.gcs_prefix,
+                                    "--concurrency",
+                                    str(request.concurrency),
+                                ]
+                            )
+                        ]
+                    ),
+                )
+                job_client.run_job(request=run_req)
+                triggered_cloud_run = True
+                logger.info("Cloud Run Job 'contract-parser-batch' triggered for %s", job.job_id)
+            except Exception as cr_exc:
+                logger.warning(
+                    "Cloud Run Job trigger failed (%s); falling back to local runner", cr_exc
+                )
+
+        if not triggered_cloud_run:
+            asyncio.create_task(
+                run_local_batch_pipeline(
+                    job_id=job.job_id,
+                    config=cfg,
+                    storage_service=active_store,
+                    concurrency=request.concurrency,
+                )
+            )
+
+        return BatchLaunchResponse(
+            job_id=job.job_id,
+            status=job.status,
+            gcs_prefix=job.gcs_prefix,
+            total_files=job.total_files,
+            concurrency=request.concurrency,
+            message="Batch job launched in background",
+        )
+
+    @fastapi_app.get("/api/v1/batch/jobs/{job_id}", response_model=BatchJobDetailResponse)
+    async def get_batch_job_detail_endpoint(
+        job_id: str,
+        current_user: UserContext = Depends(auth_dep),
+    ) -> BatchJobDetailResponse:
+        """Fetch live status and document items for a batch job."""
+        active_store: ContractStorageService = fastapi_app.state.storage
+        try:
+            job = active_store.get_batch_job(job_id)
+        except KeyError:
+            raise HTTPException(status_code=404, detail=f"Batch job {job_id} not found")
+        items = active_store.get_batch_job_items(job_id)
+        return BatchJobDetailResponse(job=job, items=items)
+
+    @fastapi_app.get("/api/v1/batch/jobs", response_model=list[BatchJobRow])
+    async def list_batch_jobs_endpoint(
+        limit: int = 50,
+        current_user: UserContext = Depends(auth_dep),
+    ) -> list[BatchJobRow]:
+        """List historical batch execution runs."""
+        active_store: ContractStorageService = fastapi_app.state.storage
+        return active_store.list_batch_jobs(limit=limit)
+
+    @fastapi_app.post("/api/v1/batch/retry/{job_id}", response_model=BatchRetryResponse)
+    async def retry_batch_job_endpoint(
+        job_id: str,
+        concurrency: int = 5,
+        current_user: UserContext = Depends(auth_dep),
+    ) -> BatchRetryResponse:
+        """Purge partial records and re-queue failed documents for a batch job (Admin only)."""
+        require_admin(current_user)
+        active_store: ContractStorageService = fastapi_app.state.storage
+        cfg: PipelineConfig = fastapi_app.state.config
+        try:
+            re_queued_count, _ = retry_failed_batch_items(
+                job_id=job_id,
+                storage_service=active_store,
+                config=cfg,
+                concurrency=concurrency,
+            )
+            return BatchRetryResponse(
+                job_id=job_id,
+                re_queued_count=re_queued_count,
+                status=BatchJobStatus.RUNNING,
+                message=f"Re-queued {re_queued_count} failed document(s)",
+            )
+        except ValueError as val_err:
+            raise HTTPException(status_code=400, detail=str(val_err))
+        except KeyError:
+            raise HTTPException(status_code=404, detail=f"Batch job {job_id} not found")
+        except Exception as exc:
+            raise HTTPException(status_code=500, detail=str(exc))
 
     return fastapi_app
 
