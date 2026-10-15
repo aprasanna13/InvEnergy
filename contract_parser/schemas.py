@@ -474,6 +474,13 @@ class ClauseReviewRequest(BaseModel):
 class GeminiContractExtraction(BaseModel):
     """Top-level structured output schema returned directly by Gemini 3.x."""
 
+    model_config = ConfigDict(extra="allow")
+
+    total_tokens: int = Field(default=0, description="Aggregate token count across passes")
+    prompt_tokens: int = Field(default=0, description="Aggregate prompt/input tokens")
+    completion_tokens: int = Field(default=0, description="Aggregate completion/output tokens")
+    token_usage: dict[str, int] = Field(default_factory=dict, description="Detailed token metrics breakdown")
+
     page_count: int = Field(ge=1, description="Total physical pages in the PDF document")
     contracting_parties_json: str = Field(
         default="[]",
@@ -2112,6 +2119,8 @@ class BatchJobItemRow(BaseModel):
     special_conditions_count: int | None = Field(default=None, description="Number of special conditions extracted")
     duration_seconds: float | None = Field(default=None, description="Processing latency in seconds")
     token_usage_total: int | None = Field(default=None, description="Total tokens consumed for document")
+    prompt_tokens: int | None = Field(default=None, description="Prompt tokens consumed for document")
+    completion_tokens: int | None = Field(default=None, description="Completion tokens consumed for document")
     error_message: str | None = Field(default=None, description="Failure reason or exception trace if failed")
     started_at: str | None = Field(default=None, description="UTC start timestamp")
     completed_at: str | None = Field(default=None, description="UTC completion timestamp")

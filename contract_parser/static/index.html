@@ -4130,11 +4130,14 @@
               <td style="padding:8px 12px;">
                 <span style="background:${statusBg}; color:${statusColor}; padding:2px 8px; border-radius:10px; font-size:10px; font-weight:700;">${j.status}</span>
               </td>
-              <td style="padding:8px 12px; text-align:center; font-weight:600;">${j.total_contracts}</td>
-              <td style="padding:8px 12px; text-align:center;">${j.processed_contracts}</td>
-              <td style="padding:8px 12px; text-align:center; color:#16a34a; font-weight:600;">${j.successful_contracts}</td>
-              <td style="padding:8px 12px; text-align:center; color:#dc2626; font-weight:600;">${j.failed_contracts}</td>
-              <td style="padding:8px 12px; color:#64748b; font-size:11px;">${new Date(j.created_at).toLocaleTimeString()}</td>
+              <td style="padding:8px 12px; text-align:center; font-weight:600;">${j.total_files ?? j.total_contracts ?? 0}</td>
+              <td style="padding:8px 12px; text-align:center;">${j.processed_files ?? j.processed_contracts ?? 0}</td>
+              <td style="padding:8px 12px; text-align:center; color:#16a34a; font-weight:600;">${j.success_count ?? j.successful_contracts ?? 0}</td>
+              <td style="padding:8px 12px; text-align:center; color:#dc2626; font-weight:600;">${j.failure_count ?? j.failed_contracts ?? 0}</td>
+              <td style="padding:8px 12px; text-align:right; font-size:11px; color:#475569;" title="Prompt: ${(j.prompt_tokens_consumed || 0).toLocaleString()} | Output: ${(j.completion_tokens_consumed || 0).toLocaleString()}">
+                ${(j.total_tokens_consumed || 0) > 0 ? `${(j.prompt_tokens_consumed || 0).toLocaleString()} / ${(j.completion_tokens_consumed || 0).toLocaleString()}` : '<span style="color:#94a3b8;">—</span>'}
+              </td>
+              <td style="padding:8px 12px; color:#64748b; font-size:11px;">${new Date(j.started_at || j.created_at).toLocaleTimeString()}</td>
               <td style="padding:8px 12px; text-align:right;">
                 <button onclick="event.stopPropagation(); selectBatchJob('${j.job_id}')" style="padding:3px 8px; font-size:11px; background:#f1f5f9; border:1px solid #cbd5e1; border-radius:3px; cursor:pointer;">View</button>
               </td>
@@ -4181,6 +4184,17 @@
                                     job.status === "FAILED" ? "#991b1b" : "#475569";
         }
 
+        const tokensBadge = document.getElementById("selected-job-tokens-badge");
+        if (tokensBadge && job) {
+          const tot = job.total_tokens_consumed || 0;
+          if (tot > 0) {
+            tokensBadge.textContent = `⚡ ${tot.toLocaleString()} tokens (${(job.prompt_tokens_consumed || 0).toLocaleString()} in / ${(job.completion_tokens_consumed || 0).toLocaleString()} out)`;
+            tokensBadge.style.display = "inline-block";
+          } else {
+            tokensBadge.style.display = "none";
+          }
+        }
+
         if (retryBtn) {
           retryBtn.style.display = (job && job.failed_contracts > 0) ? "inline-block" : "none";
         }
@@ -4198,22 +4212,29 @@
                                 it.status === "RUNNING" ? "#854d0e" :
                                 it.status === "FAILED" ? "#991b1b" : "#475569";
 
-          const fileName = (it.source_file_path || "").split("/").pop();
+          const fileName = escapeHtml(it.filename || (it.source_file_path || it.gcs_uri || "").split("/").pop());
           const projInfo = it.project_id ? `${escapeHtml(it.project_id)}` : `<span style="color:#94a3b8;">—</span>`;
           const duration = it.duration_seconds ? `${it.duration_seconds.toFixed(1)}s` : "—";
-          const tokens = (it.input_tokens || it.output_tokens) ? `${it.input_tokens || 0} / ${it.output_tokens || 0}` : "—";
+          const inTok = it.prompt_tokens ?? it.input_tokens;
+          const outTok = it.completion_tokens ?? it.output_tokens;
+          let tokens = "—";
+          if (inTok != null || outTok != null) {
+            tokens = `<span title="Prompt: ${(inTok || 0).toLocaleString()} | Output: ${(outTok || 0).toLocaleString()}">${(inTok || 0).toLocaleString()} / ${(outTok || 0).toLocaleString()}</span>`;
+          } else if (it.token_usage_total) {
+            tokens = `${Number(it.token_usage_total).toLocaleString()} total`;
+          }
           const details = it.error_message ? `<span style="color:#dc2626;">⚠️ ${escapeHtml(it.error_message)}</span>` :
                           (it.status === "COMPLETED" ? `<span style="color:#16a34a;">✓ Successfully ingested</span>` : "");
 
           return `
             <tr style="border-bottom:1px solid #f1f5f9;">
-              <td style="padding:7px 12px; font-family:monospace; font-size:11px;" title="${escapeHtml(it.source_file_path)}">${escapeHtml(fileName)}</td>
+              <td style="padding:7px 12px; font-family:monospace; font-size:11px;" title="${escapeHtml(it.gcs_uri || it.source_file_path || it.filename || '')}">${fileName}</td>
               <td style="padding:7px 12px;">
                 <span style="background:${itStatusBg}; color:${itStatusColor}; padding:2px 6px; border-radius:8px; font-size:9px; font-weight:700;">${it.status}</span>
               </td>
               <td style="padding:7px 12px; font-family:monospace; font-size:11px;">${projInfo}</td>
               <td style="padding:7px 12px; text-align:right; font-size:11px;">${duration}</td>
-              <td style="padding:7px 12px; text-align:right; font-size:11px; color:#64748b;">${tokens}</td>
+              <td style="padding:7px 12px; text-align:right; font-size:11px; color:#475569; font-weight:600;">${tokens}</td>
               <td style="padding:7px 12px; font-size:11px;">${details}</td>
             </tr>
           `;
@@ -4357,12 +4378,13 @@
                   <th style="padding:10px 12px; text-align:center;">Processed</th>
                   <th style="padding:10px 12px; text-align:center;">Success</th>
                   <th style="padding:10px 12px; text-align:center;">Failed</th>
+                  <th style="padding:10px 12px; text-align:right;">Tokens (In/Out)</th>
                   <th style="padding:10px 12px;">Created</th>
                   <th style="padding:10px 12px; text-align:right;">Actions</th>
                 </tr>
               </thead>
               <tbody id="batch-jobs-table-body">
-                <tr><td colspan="8" style="padding:16px; text-align:center; color:#94a3b8;">No batch jobs loaded yet. Scan an inbox or click Refresh.</td></tr>
+                <tr><td colspan="9" style="padding:16px; text-align:center; color:#94a3b8;">No batch jobs loaded yet. Scan an inbox or click Refresh.</td></tr>
               </tbody>
             </table>
           </div>
@@ -4374,6 +4396,7 @@
             <div style="display:flex; align-items:center; gap:8px;">
               <h3 style="margin:0; font-size:14px; font-weight:700; color:#1e293b; text-transform:uppercase; letter-spacing:0.5px;">Job Items Feed: <span id="selected-job-id-label" style="font-family:monospace; color:var(--primary-green, #0a4d34);"></span></h3>
               <span id="selected-job-status-badge" style="padding:2px 8px; border-radius:10px; font-size:10px; font-weight:700;"></span>
+              <span id="selected-job-tokens-badge" style="display:none; padding:2px 8px; border-radius:10px; font-size:10px; font-weight:700; background:#f1f5f9; color:#334155; border:1px solid #cbd5e1; margin-left:8px;"></span>
             </div>
             <div style="display:flex; gap:8px;">
               <button id="batch-retry-failed-btn" onclick="retrySelectedJobFailed()" style="display:none; padding:4px 10px; background:#dc2626; color:#fff; border:none; border-radius:4px; font-size:11px; font-weight:700; cursor:pointer;">🔁 Retry Failed Items</button>

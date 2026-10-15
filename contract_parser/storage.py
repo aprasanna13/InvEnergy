@@ -399,6 +399,8 @@ BQ_BATCH_JOB_ITEMS_SCHEMA = [
     bigquery.SchemaField("special_conditions_count", "INT64", mode="NULLABLE"),
     bigquery.SchemaField("duration_seconds", "FLOAT64", mode="NULLABLE"),
     bigquery.SchemaField("token_usage_total", "INT64", mode="NULLABLE"),
+    bigquery.SchemaField("prompt_tokens", "INT64", mode="NULLABLE"),
+    bigquery.SchemaField("completion_tokens", "INT64", mode="NULLABLE"),
     bigquery.SchemaField("error_message", "STRING", mode="NULLABLE"),
     bigquery.SchemaField("started_at", "TIMESTAMP", mode="NULLABLE"),
     bigquery.SchemaField("completed_at", "TIMESTAMP", mode="NULLABLE"),
@@ -774,6 +776,8 @@ class ContractStorageService:
                     special_conditions_count INTEGER,
                     duration_seconds REAL,
                     token_usage_total INTEGER,
+                    prompt_tokens INTEGER,
+                    completion_tokens INTEGER,
                     error_message TEXT,
                     started_at TEXT,
                     completed_at TEXT,
@@ -3759,7 +3763,7 @@ class ContractStorageService:
             ).fetchall()
             for r in rows:
                 data = {k: r[k] for k in BATCH_JOB_ITEMS_COLUMNS if k in r.keys()}
-                for int_f in ("clause_count", "special_conditions_count", "token_usage_total"):
+                for int_f in ("clause_count", "special_conditions_count", "token_usage_total", "prompt_tokens", "completion_tokens"):
                     if int_f in data and data[int_f] is not None:
                         try:
                             data[int_f] = int(data[int_f])
@@ -3781,7 +3785,7 @@ class ContractStorageService:
                         for k in BATCH_JOB_ITEMS_COLUMNS
                         if k in r.keys()
                     }
-                    for int_f in ("clause_count", "special_conditions_count", "token_usage_total"):
+                    for int_f in ("clause_count", "special_conditions_count", "token_usage_total", "prompt_tokens", "completion_tokens"):
                         if int_f in row_dict and row_dict[int_f] is not None:
                             try:
                                 row_dict[int_f] = int(row_dict[int_f])
@@ -3806,7 +3810,7 @@ class ContractStorageService:
             ).fetchone()
             if row:
                 data = {k: row[k] for k in BATCH_JOB_ITEMS_COLUMNS if k in row.keys()}
-                for int_f in ("clause_count", "special_conditions_count", "token_usage_total"):
+                for int_f in ("clause_count", "special_conditions_count", "token_usage_total", "prompt_tokens", "completion_tokens"):
                     if int_f in data and data[int_f] is not None:
                         try:
                             data[int_f] = int(data[int_f])

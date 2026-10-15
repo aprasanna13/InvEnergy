@@ -350,5 +350,16 @@
   * Enhanced `storage_service.read_pdf_bytes()` with automatic fallback to document bundle's `gcs_pdf_uri` ensuring seamless PDF streaming across inbox, raw, and archive locations.
   * Authored automated test `test_batch_raw_archiving_and_archive_folder_move` in `tests/test_cr12_batch_ingestion.py` covering GCS/local raw storage archiving and inbox-to-archive movement with 100% pass rate.
 
+## [0.12.3] - 2026-10-15
+- Implemented Prompt & Completion Token Tracking and Visibility in Batch Ingestion Studio:
+  * Added thread-safe token usage accounting in `GeminiContractParser` (`contract_parser/gemini_parser.py`) capturing prompt, completion, total, and cached tokens across all multi-pass LLM discovery and extraction calls from `GenerateContentResponse.usage_metadata`.
+  * Stamped accumulated token counts onto `GeminiContractExtraction` and `ParsedContractBundle`.
+  * Added `prompt_tokens` and `completion_tokens` fields to `BatchJobItemRow` in `contract_parser/schemas.py`.
+  * Updated dual-engine lakehouse schemas in `contract_parser/storage.py` (BigQuery schema and SQLite table DDL for `batch_job_items`) and updated `contract_intelligence.v_active_batch_job_items` view.
+  * Updated `process_single_batch_item()` and `process_batch_job()` in `contract_parser/batch.py` to reset parser token usage per item, persist `prompt_tokens` and `completion_tokens` on `BatchJobItemRow`, and accumulate `prompt_tokens_consumed` and `completion_tokens_consumed` on parent `BatchJobRow`.
+  * Updated Batch Ingestion Studio in `contract_parser/static/index.html` to display `Tokens (In/Out)` column in both the Batch Job Queue & History table and Job Items Feed, with an aggregate tokens badge (`⚡ X tokens (Y in / Z out)`) in the job header.
+  * Backfilled historical token usage metrics in BigQuery for completed batch jobs and items.
+
+
 
 

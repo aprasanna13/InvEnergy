@@ -167,6 +167,43 @@ class GeminiContractParser:
         self.config.ensure_genai_env()
         self._client: genai.Client | None = None
         self._client_lock = threading.Lock()
+        self._token_lock = threading.Lock()
+        self._prompt_tokens: int = 0
+        self._completion_tokens: int = 0
+        self._total_tokens: int = 0
+        self._cached_tokens: int = 0
+
+    def record_response_tokens(self, response: Any) -> None:
+        """Record LLM token consumption thread-safely."""
+        usage = getattr(response, "usage_metadata", None)
+        if usage:
+            p = int(getattr(usage, "prompt_token_count", 0) or 0)
+            c = int(getattr(usage, "candidates_token_count", 0) or 0)
+            t = int(getattr(usage, "total_token_count", 0) or 0)
+            cached = int(getattr(usage, "cached_content_token_count", 0) or 0)
+            with self._token_lock:
+                self._prompt_tokens += p
+                self._completion_tokens += c
+                self._total_tokens += t
+                self._cached_tokens += cached
+
+    def get_token_usage(self) -> dict[str, int]:
+        """Return accumulated token usage dictionary."""
+        with self._token_lock:
+            return {
+                "prompt_tokens": self._prompt_tokens,
+                "completion_tokens": self._completion_tokens,
+                "total_tokens": self._total_tokens,
+                "cached_tokens": self._cached_tokens,
+            }
+
+    def reset_token_usage(self) -> None:
+        """Reset accumulated token usage counters."""
+        with self._token_lock:
+            self._prompt_tokens = 0
+            self._completion_tokens = 0
+            self._total_tokens = 0
+            self._cached_tokens = 0
 
     @property
     def client(self) -> genai.Client:
@@ -236,6 +273,7 @@ class GeminiContractParser:
                             ),
                         )
                         record_llm_response_telemetry(span, response, model_name)
+                        self.record_response_tokens(response)
                         if response.parsed is not None and isinstance(
                             response.parsed, ContractStructureIndex
                         ):
@@ -315,6 +353,7 @@ class GeminiContractParser:
                             ),
                         )
                         record_llm_response_telemetry(span, response, model_name)
+                        self.record_response_tokens(response)
                         if response.parsed is not None and isinstance(
                             response.parsed, BodyPassExtraction
                         ):
@@ -396,6 +435,7 @@ class GeminiContractParser:
                             ),
                         )
                         record_llm_response_telemetry(span, response, model_name)
+                        self.record_response_tokens(response)
                         if response.parsed is not None and isinstance(
                             response.parsed, ExhibitsPassExtraction
                         ):
@@ -483,6 +523,7 @@ class GeminiContractParser:
                             ),
                         )
                         record_llm_response_telemetry(span, response, model_name)
+                        self.record_response_tokens(response)
                         if response.parsed is not None and isinstance(
                             response.parsed, GeminiContractExtraction
                         ):
@@ -651,13 +692,19 @@ class GeminiContractParser:
             )
 
             # Domain normalization, regex enrichment, and tree sorting
-            return normalize_and_enrich_extraction(
+            enriched = normalize_and_enrich_extraction(
                 extraction=raw_bundle,
                 document_id=document_id,
                 gcs_pdf_uri=gcs_pdf_uri,
                 project_id=project_id,
                 landowner_id=landowner_id,
             )
+            tokens = self.get_token_usage()
+            enriched.total_tokens = tokens["total_tokens"]
+            enriched.prompt_tokens = tokens["prompt_tokens"]
+            enriched.completion_tokens = tokens["completion_tokens"]
+            enriched.token_usage = tokens
+            return enriched
 
     def _discover_template_structure(
         self, pdf_part: types.Part, total_pages: int | None = None

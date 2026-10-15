@@ -210,6 +210,8 @@ def process_single_batch_item(
     """
     t0 = time.time()
     active_parser = parser or HierarchicalContractParser(config)
+    if hasattr(active_parser, "reset_token_usage"):
+        active_parser.reset_token_usage()
 
     # Transition item to PROCESSING
     item = item.model_copy(
@@ -456,15 +458,28 @@ def process_single_batch_item(
                     logger.warning("Failed moving local source PDF to archive directory for %s: %s", item.gcs_uri, archive_exc)
 
             duration = round(time.time() - t0, 2)
-            raw_tokens = getattr(extraction, "total_tokens", 0)
-            if isinstance(raw_tokens, (int, float)):
-                total_tokens = int(raw_tokens)
-            elif hasattr(extraction, "token_usage") and isinstance(extraction.token_usage, dict):
-                in_tok = extraction.token_usage.get("input_tokens") or extraction.token_usage.get("prompt_tokens") or 0
-                out_tok = extraction.token_usage.get("output_tokens") or extraction.token_usage.get("candidates_tokens") or 0
-                total_tokens = (int(in_tok) if isinstance(in_tok, (int, float)) else 0) + (int(out_tok) if isinstance(out_tok, (int, float)) else 0)
-            else:
-                total_tokens = 0
+            token_stats = (
+                active_parser.get_token_usage()
+                if hasattr(active_parser, "get_token_usage")
+                else {}
+            )
+            prompt_tokens = int(token_stats.get("prompt_tokens") or 0)
+            completion_tokens = int(token_stats.get("completion_tokens") or 0)
+            total_tokens = int(token_stats.get("total_tokens") or 0)
+
+            # Fallback if parser counters were zero
+            if total_tokens == 0:
+                raw_tokens = getattr(extraction, "total_tokens", 0)
+                if isinstance(raw_tokens, (int, float)) and int(raw_tokens) > 0:
+                    total_tokens = int(raw_tokens)
+                    prompt_tokens = int(getattr(extraction, "prompt_tokens", 0) or 0)
+                    completion_tokens = int(getattr(extraction, "completion_tokens", 0) or 0)
+                elif hasattr(extraction, "token_usage") and isinstance(extraction.token_usage, dict):
+                    in_tok = extraction.token_usage.get("input_tokens") or extraction.token_usage.get("prompt_tokens") or 0
+                    out_tok = extraction.token_usage.get("output_tokens") or extraction.token_usage.get("candidates_tokens") or 0
+                    prompt_tokens = int(in_tok) if isinstance(in_tok, (int, float)) else 0
+                    completion_tokens = int(out_tok) if isinstance(out_tok, (int, float)) else 0
+                    total_tokens = prompt_tokens + completion_tokens
 
             # 10. Update item record to COMPLETED
             item = item.model_copy(
@@ -481,6 +496,8 @@ def process_single_batch_item(
                     "special_conditions_count": len(bundle.special_conditions),
                     "duration_seconds": duration,
                     "token_usage_total": total_tokens,
+                    "prompt_tokens": prompt_tokens,
+                    "completion_tokens": completion_tokens,
                     "error_message": None,
                     "completed_at": utc_now_iso(),
                     "updated_at": utc_now_iso(),
@@ -600,12 +617,17 @@ async def run_sliding_window_worker_pool(
                 except Exception:
                     current_job = job
 
+                prompt_inc = int(res_item.prompt_tokens or 0)
+                completion_inc = int(res_item.completion_tokens or 0)
+
                 job = current_job.model_copy(
                     update={
                         "processed_files": int(current_job.processed_files) + 1,
                         "success_count": int(current_job.success_count) + success_inc,
                         "failure_count": int(current_job.failure_count) + failure_inc,
                         "total_tokens_consumed": int(current_job.total_tokens_consumed) + tokens_inc,
+                        "prompt_tokens_consumed": int(current_job.prompt_tokens_consumed) + prompt_inc,
+                        "completion_tokens_consumed": int(current_job.completion_tokens_consumed) + completion_inc,
                         "updated_at": utc_now_iso(),
                     }
                 )
