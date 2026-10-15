@@ -996,6 +996,21 @@ class ContractStorageService:
                     local_path.parent.mkdir(parents=True, exist_ok=True)
                     local_path.write_bytes(data)
                     return data
+
+            # Fallback: check document's recorded gcs_pdf_uri if file is in archive/ or inbox
+            try:
+                bundle = self.get_document_bundle(document_id)
+                if bundle and bundle.document.gcs_pdf_uri:
+                    uri = bundle.document.gcs_pdf_uri
+                    if uri.startswith("gs://"):
+                        b_name, b_path = self._split_gcs_uri(uri)
+                        blob = self.gcs_client.bucket(b_name).get_blob(b_path)
+                        if blob:
+                            data = blob.download_as_bytes()
+                            return data
+            except Exception:
+                pass
+
         raise FileNotFoundError(f"PDF not found for document_id={document_id}")
 
     def list_incoming_gcs_pdfs(self, prefix: str = "incoming/") -> list[str]:

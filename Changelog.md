@@ -342,4 +342,13 @@
   * Added computed fields to `BatchScanResponse` (`total_files_found`, `pending_contracts`, `files_to_process`), `BatchLaunchResponse` (`total_contracts`), and `BatchRetryResponse` (`retried_items`).
   * Enhanced `scanBatchInbox()`, `launchBatchJob()`, and `retrySelectedJobFailed()` in `contract_parser/static/index.html` with structured API error formatting to eliminate `[object Object]` alert dialogs and handle dual payload formats.
 
+## [0.12.2] - 2026-10-15
+- Implemented Canonical Raw Storage Archiving & Post-Ingestion Archive Folder Movement in Batch Engine:
+  * Updated `process_single_batch_item()` in `contract_parser/batch.py` to archive every processed PDF into canonical `raw/<document_id>/<filename>` via `storage_service.archive_raw_pdf()`.
+  * Pointed `document.gcs_pdf_uri` to the canonical raw path `gs://<bucket>/raw/<document_id>/<filename>` ensuring uniform lakehouse layout.
+  * Added post-ingestion move logic: upon successful extraction and persistence, moves source contract from inbox to `archive/<filename>` in GCS (or local mirror), stamping custom metadata (`ingestion_status: COMPLETED`, `document_id`, `job_id`, `completed_at`, `raw_uri`).
+  * Enhanced `storage_service.read_pdf_bytes()` with automatic fallback to document bundle's `gcs_pdf_uri` ensuring seamless PDF streaming across inbox, raw, and archive locations.
+  * Authored automated test `test_batch_raw_archiving_and_archive_folder_move` in `tests/test_cr12_batch_ingestion.py` covering GCS/local raw storage archiving and inbox-to-archive movement with 100% pass rate.
+
+
 

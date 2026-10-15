@@ -245,6 +245,11 @@ def process_single_batch_item(
             # 3. Clean-slate purge of any partial records before extraction
             storage_service.purge_partial_document(doc_id)
 
+            # 3b. Archive PDF to canonical raw/<document_id>/<filename> in storage
+            doc_id, canonical_raw_gcs_uri = storage_service.archive_raw_pdf(
+                pdf_bytes=pdf_bytes, filename=filename, document_id=doc_id
+            )
+
             # 4. Pass 1: Structural & Geolocation Discovery
             emit_stage_log(
                 STAGE_PASS_START,
@@ -257,7 +262,7 @@ def process_single_batch_item(
                 p1_span.set_attribute("pass.name", "pass_1_structure_discovery")
                 p1_span.set_attribute("contract.document_id", doc_id)
                 struct_index: ContractStructureIndex = active_parser.discover_structure(
-                    gcs_pdf_uri=item.gcs_uri,
+                    gcs_pdf_uri=canonical_raw_gcs_uri,
                     pdf_bytes=pdf_bytes,
                 )
 
@@ -334,7 +339,7 @@ def process_single_batch_item(
             )
             extraction = active_parser.extract(
                 document_id=doc_id,
-                gcs_pdf_uri=item.gcs_uri,
+                gcs_pdf_uri=canonical_raw_gcs_uri,
                 pdf_bytes=pdf_bytes,
                 project_id=target_project.project_id,
                 landowner_id=resolved_landowner_id,
@@ -363,7 +368,7 @@ def process_single_batch_item(
             completed_doc = DocumentRegistryRow(
                 document_id=doc_id,
                 filename=Path(filename).name,
-                gcs_pdf_uri=item.gcs_uri,
+                gcs_pdf_uri=canonical_raw_gcs_uri,
                 gcs_export_prefix=f"gs://{config.gcs_bucket_name}/exports/{doc_id}/",
                 page_count=final_page_count,
                 contracting_parties_json=extraction.contracting_parties_json or "[]",
@@ -412,21 +417,43 @@ def process_single_batch_item(
                     "lakehouse.special_conditions_count", len(bundle.special_conditions)
                 )
 
-            # 9. Option 4a: Stamp GCS Blob Custom Metadata
+            # 9. Move processed PDF from inbox to archive folder
+            archived_uri = item.gcs_uri
             if item.gcs_uri.startswith("gs://"):
                 try:
-                    bucket_name, blob_name = storage_service._split_gcs_uri(item.gcs_uri)
-                    blob = storage_service.gcs_client.bucket(bucket_name).get_blob(blob_name)
-                    if blob:
-                        blob.metadata = {
+                    bucket_name, src_blob_name = storage_service._split_gcs_uri(item.gcs_uri)
+                    bucket = storage_service.gcs_client.bucket(bucket_name)
+                    src_blob = bucket.get_blob(src_blob_name)
+                    if src_blob:
+                        safe_filename = Path(src_blob_name).name
+                        dest_blob_name = f"archive/{safe_filename}"
+                        dest_blob = bucket.copy_blob(src_blob, bucket, dest_blob_name)
+                        dest_blob.metadata = {
                             "ingestion_status": "COMPLETED",
                             "document_id": doc_id,
                             "job_id": item.job_id,
                             "completed_at": utc_now_iso(),
+                            "original_inbox_uri": item.gcs_uri,
+                            "raw_uri": canonical_raw_gcs_uri,
                         }
-                        blob.patch()
-                except Exception as meta_exc:
-                    logger.warning("Failed to stamp GCS blob metadata on %s: %s", item.gcs_uri, meta_exc)
+                        dest_blob.patch()
+                        src_blob.delete()
+                        archived_uri = f"gs://{bucket_name}/{dest_blob_name}"
+                        logger.info("Archived source PDF from %s to %s", item.gcs_uri, archived_uri)
+                except Exception as archive_exc:
+                    logger.warning("Failed moving source PDF to archive folder for %s: %s", item.gcs_uri, archive_exc)
+            else:
+                try:
+                    src_path = Path(item.gcs_uri)
+                    if src_path.exists():
+                        archive_dir = src_path.parent / "archive"
+                        archive_dir.mkdir(parents=True, exist_ok=True)
+                        dest_path = archive_dir / src_path.name
+                        src_path.replace(dest_path)
+                        archived_uri = str(dest_path)
+                        logger.info("Archived local source PDF from %s to %s", src_path, dest_path)
+                except Exception as archive_exc:
+                    logger.warning("Failed moving local source PDF to archive directory for %s: %s", item.gcs_uri, archive_exc)
 
             duration = round(time.time() - t0, 2)
             raw_tokens = getattr(extraction, "total_tokens", 0)
@@ -446,6 +473,7 @@ def process_single_batch_item(
                     "project_id": target_project.project_id,
                     "landowner_id": resolved_landowner_id,
                     "status": BatchItemStatus.COMPLETED,
+                    "gcs_uri": archived_uri,
                     "state_province": state_code,
                     "county": county_name,
                     "energy_technology": target_project.energy_technology.value,

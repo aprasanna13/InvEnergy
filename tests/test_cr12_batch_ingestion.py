@@ -575,3 +575,96 @@ def test_telemetry_stages_and_spans(tmp_path: Path, caplog):
         assert updated.project_id is not None
 
     asyncio.run(_test())
+
+
+# ==============================================================================
+# Test 8: Raw Folder Copy & Archive Folder Move
+# ==============================================================================
+
+def test_batch_raw_archiving_and_archive_folder_move(tmp_path: Path):
+    """Test 8: Raw Folder Copy & Archive Folder Move.
+    Verifies that:
+    - Processed PDF is archived into raw/<document_id>/<filename>
+    - Source PDF in inbox is moved into archive/<filename>
+    - Document registry records the canonical raw archive path
+    - read_pdf_bytes successfully reads the archived contract
+    """
+    async def _test():
+        db_path = str(tmp_path / "test_archive_move.db")
+        raw_dir = tmp_path / "raw_storage"
+        cfg = PipelineConfig(
+            sqlite_db_path=db_path,
+            local_data_dir=raw_dir,
+            use_bigquery=False,
+            auth_enabled=False,
+        )
+        storage = ContractStorageService(config=cfg)
+
+        inbox_dir = tmp_path / "inbox_test"
+        inbox_dir.mkdir(parents=True, exist_ok=True)
+        pdf_bytes = create_dummy_pdf_bytes(1)
+        src_file = inbox_dir / "sample_lease.pdf"
+        src_file.write_bytes(pdf_bytes)
+
+        job, items = initialize_batch_job(
+            gcs_prefix=str(inbox_dir),
+            concurrency=1,
+            storage_service=storage,
+            config=cfg,
+        )
+
+        mock_structure = ContractStructureIndex(
+            document_title="Sample Solar Lease",
+            state_province="TX",
+            county="Hansford",
+            energy_technology=EnergyTechnology.SOLAR,
+            total_clauses=3,
+            total_pages=1,
+        )
+        mock_parser = MagicMock()
+        mock_parser.discover_structure.return_value = mock_structure
+
+        mock_doc_result = MagicMock()
+        mock_doc_result.document_id = "doc_archive_test"
+        mock_doc_result.clauses = []
+        mock_doc_result.special_conditions = []
+        mock_doc_result.parties = []
+        mock_doc_result.token_usage = {"input_tokens": 100, "output_tokens": 50}
+        mock_doc_result.total_tokens = 150
+        mock_doc_result.page_count = 1
+        mock_doc_result.contracting_parties_json = "[]"
+        mock_doc_result.effective_date = "2025-05-01"
+        mock_parser.extract.return_value = mock_doc_result
+
+        final_job = await run_sliding_window_worker_pool(
+            job_id=job.job_id,
+            items=items,
+            config=cfg,
+            storage_service=storage,
+            concurrency=1,
+            parser=mock_parser,
+        )
+
+        assert final_job.success_count == 1
+
+        # 1. Source file is no longer in inbox root
+        assert not src_file.exists()
+
+        # 2. Source file was moved to archive/
+        archived_file = inbox_dir / "archive" / "sample_lease.pdf"
+        assert archived_file.exists()
+
+        # 3. Canonical raw copy exists under raw/<doc_id>/<filename>
+        updated_item = storage.get_batch_job_item(items[0].item_id)
+        assert updated_item is not None
+        assert updated_item.document_id is not None
+        bundle = storage.get_document_bundle(updated_item.document_id)
+        assert bundle is not None
+        assert "raw" in bundle.document.gcs_pdf_uri
+
+        # 4. read_pdf_bytes retrieves the raw content
+        stored_bytes = storage.read_pdf_bytes(updated_item.document_id)
+        assert stored_bytes == pdf_bytes
+
+    asyncio.run(_test())
+
