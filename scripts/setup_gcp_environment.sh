@@ -63,6 +63,14 @@ else
     echo "    Bucket gs://${BUCKET_NAME} successfully created with Uniform Bucket-Level Access."
 fi
 
+# Ensure standard GCS folder layout exists
+echo "    Initializing canonical Cloud Storage directories..."
+for folder in "batch_inbox" "raw" "archive" "exports"; do
+    touch "/tmp/.keep_${folder}"
+    gcloud storage cp "/tmp/.keep_${folder}" "gs://${BUCKET_NAME}/${folder}/.keep" >/dev/null 2>&1 || true
+    rm -f "/tmp/.keep_${folder}"
+done
+
 # 4. Provision BigQuery Dataset & Run DDL Scripts
 echo "--> [3/5] Provisioning BigQuery Dataset ${BQ_DATASET_ID}..."
 if bq show --project_id="${PROJECT_ID}" "${BQ_DATASET_ID}" >/dev/null 2>&1; then
@@ -111,6 +119,7 @@ ROLES=(
     "roles/aiplatform.user"
     "roles/cloudtrace.agent"
     "roles/logging.logWriter"
+    "roles/run.developer"
 )
 
 for role in "${ROLES[@]}"; do

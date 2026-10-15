@@ -8,7 +8,7 @@ An enterprise-grade, Gemini-first hierarchical contract parsing, extraction, and
 
 ```mermaid
 graph TD
-    User([Field Foreman / Land Analyst]) -->|Browser / HTTPS| CR[Google Cloud Run<br/>FastAPI Web App v0.9.0]
+    User([Field Foreman / Land Analyst]) -->|Browser / HTTPS| CR[Google Cloud Run<br/>FastAPI Web App v0.12.3]
     
     subgraph Security["Zero-Trust Security & Identity"]
         IDP[Google Cloud Identity Platform / Firebase Auth]
@@ -24,9 +24,17 @@ graph TD
         G2 -.->|Automatic 429 Fallback| G1
     end
 
+    subgraph BatchEngine["Historical Batch Ingestion (CR-12)"]
+        CR -->|Async Trigger / API| CRJ[Cloud Run Job: contract-parser-batch<br/>Sliding Window 5 Workers]
+        CRJ -->|GCS Flat Inbox| GCSInbox[Cloud Storage<br/>gs://BUCKET_NAME/batch_inbox/]
+        CRJ -->|Canonical Raw PDF| GCSRaw[Cloud Storage<br/>gs://BUCKET_NAME/raw/]
+        CRJ -->|Archived Source PDF| GCSArchive[Cloud Storage<br/>gs://BUCKET_NAME/archive/]
+    end
+
     subgraph Lakehouse["Dual-Tier Lakehouse"]
         CR -->|Raw PDF Archive & CSV Exports| GCS[Google Cloud Storage<br/>gs://BUCKET_NAME]
-        CR -->|Streaming Append-Only Ingestion| BQ[(BigQuery Dataset<br/>8 Tables + Deduplication Views)]
+        CR -->|Streaming Append-Only Ingestion| BQ[(BigQuery Dataset<br/>14 Tables + 15 Deduplication Views)]
+        CRJ -->|Streaming Append-Only Ingestion| BQ
     end
 
     subgraph AIInsights["Conversational Analytics"]
@@ -37,6 +45,7 @@ graph TD
     subgraph Observability["Enterprise Telemetry (CR-8)"]
         CR -->|Structured JSON Logs| CL[Google Cloud Logging]
         CR -->|W3C Distributed Tracing| CT[Google Cloud Trace]
+        CRJ -->|Correlated Traces & Metrics| CT
     end
 ```
 
@@ -50,10 +59,16 @@ graph TD
 │   ├── app.py                  # FastAPI Application, Routes & Static HTML Serving
 │   ├── auth.py                 # Identity Platform / Firebase Auth & RBAC
 │   ├── ask_agent.py            # BigQuery Data Analytics Agent Client & Proxy
+│   ├── batch.py                # Historical Batch Ingestion & Autonomous Consolidation (CR-12)
+│   ├── bundle_assembler.py     # AST Bundle Assembler & Signature Quarantine
 │   ├── config.py               # Centralized Pipeline Configuration & Settings
 │   ├── gemini_parser.py        # 3-Pass Gemini Multi-Pass Extraction Engine
 │   ├── schemas.py              # Pydantic Schemas, AST Nodes & Enums
-│   ├── storage.py              # Lakehouse Persistence (SQLite, GCS, BigQuery)
+│   ├── storage.py              # Lakehouse Persistence (SQLite, GCS, BigQuery 14-Table Model)
+│   ├── variance_engine.py      # Contract Variance, Redline Myers Diff & Risk Scoring (CR-11)
+│   ├── static/                 # Single-Page Frontend Workspace & Workbench HTML
+│   │   ├── index.html          # Main Contract Intelligence & Batch Studio UI
+│   │   └── template_studio.html # Regional Template Studio Workbench (CR-9)
 │   └── telemetry/              # OpenTelemetry Tracing & Cloud Logging (CR-8)
 │       ├── logging_formatter.py # Cloud Logging Single-Line Structured JSON Formatter
 │       ├── tracing.py          # TracerProvider & CloudTraceSpanExporter Setup
@@ -61,11 +76,12 @@ graph TD
 ├── scripts/
 │   ├── setup_gcp_environment.sh # Automated GCP Infrastructure Provisioning Script
 │   └── sql/
-│       ├── 01_create_tables.sql      # BigQuery 8-Table DDL with Partitioning & Clustering
-│       ├── 02_create_views.sql       # Analytical Deduplication Views (QUALIFY ROW_NUMBER() = 1)
+│       ├── 01_create_tables.sql      # BigQuery 14-Table DDL with Partitioning & Clustering
+│       ├── 02_create_views.sql       # Analytical Deduplication Views (15 Views)
 │       └── 03_seed_erp_projects.sql  # Initial ERP Portfolio Projects Seed
 ├── tests/                      # Pytest Unit & Integration Test Suites
-├── Dockerfile                  # Production Container Specification
+├── Dockerfile                  # Web Service Production Container Specification
+├── Dockerfile.batch            # Standalone Cloud Run Job Batch Runner Specification
 ├── pyproject.toml              # Dependencies & Package Metadata
 ├── .env.example                # Runtime Environment Variables Template
 └── Changelog.md                # Version History & Release Notes
@@ -362,11 +378,38 @@ The platform provides a dedicated Workbench UI and REST API for managing regiona
   | `POST` | `/api/v1/templates/seed` | Seed canonical sample templates from `samples/Templates` |
   | `GET` | `/template-studio` | Serve dedicated Template Studio HTML workbench |
 
+### 8.6 Contract Variance Engine & Legal Redlines (CR-11)
+
+The platform includes an automated two-stage AST alignment and legal redline engine comparing executed land leases against regional master templates:
+* **Hybrid Alignment:** Stage 1 exact canonical path matching (`BODY.1.1` == `BODY.1.1`); Stage 2 token similarity fallback with Jaccard index $\ge 0.70$.
+* **Bracket Parameter Masking:** Tokenizes authorized fill-in values (`$[_____]`, `[County]`, `[State]`) so clean parameters are classified as `PARAMETER_ONLY` (Risk: `NONE`, 0 redlines).
+* **Word-Level Myers Diff & Redlines:** Generates side-by-side legal diff markup with `<ins class="diff-ins">` and `<del class="diff-del">`.
+* **Multi-Tier Risk Scoring:** Computes legal risk (`NONE`, `LOW`, `MEDIUM`, `HIGH`) with category tags and contextual legal rationales.
+* **REST Endpoints:** `POST /api/v1/contracts/{id}/compare`, `GET /api/v1/contracts/{id}/variance`, `GET /api/v1/contracts/{id}/variance/templates`.
+
+### 8.7 Historical Batch Ingestion & Batch Ingestion Studio (CR-12)
+
+For onboarding legacy contract archives from flat storage prefixes (e.g. `gs://<bucket>/batch_inbox/`):
+* **Option 4a GCS Metadata Pre-Filtering:** Sub-second inbox scanning checking `blob.metadata['ingestion_status'] == 'COMPLETED'` without byte downloads.
+* **Option 3 Location-Driven Project Consolidation:** Groups leases into projects by `(State, County, Technology)` with deterministic synthetic ERP codes (`ERP-{TECH}-{STATE}-{COUNTY}`) and earliest-inserted project anchoring.
+* **Option B Sliding-Window Concurrency:** Continuous pool of 5 active worker coroutines maximizing throughput while remaining strictly within Vertex AI rate quotas.
+* **Clean-Slate Recovery:** Incomplete or interrupted contracts are purged (`purge_partial_document()`) and re-extracted from scratch on retries.
+* **Canonical Storage Archiving & Post-Ingestion Move:** Processed contracts are copied to `raw/<document_id>/<filename>` and moved from inbox to `archive/<filename>`.
+* **Prompt & Completion Token Tracking (v0.12.3):** Accumulates Gemini `usage_metadata` across concurrent passes, tracking prompt and completion tokens per contract and for the job.
+* **Batch REST Endpoints (Admin Only):**
+  | Method | Endpoint | Description |
+  | :--- | :--- | :--- |
+  | `POST` | `/api/v1/batch/scan` | Pre-flight inspects GCS prefix or local directory |
+  | `POST` | `/api/v1/batch/launch` | Triggers sliding-window batch ingestion (Cloud Run Job or local runner) |
+  | `GET` | `/api/v1/batch/jobs` | Lists historical batch jobs with aggregate token metrics |
+  | `GET` | `/api/v1/batch/jobs/{id}` | Fetches job status, item feed, and token breakdown |
+  | `POST` | `/api/v1/batch/retry/{id}` | Purges and retries failed batch items with clean-slate guarantee |
+
 ---
 
 ## 9. Google Cloud Run Deployment
 
-Deploy the container from source directly to Cloud Run:
+### 9.1 Deploy Web Service (`contract-parser`)
 
 ```bash
 gcloud run deploy contract-parser \
@@ -400,9 +443,48 @@ LOG_LEVEL=INFO,\
 CLOUD_TRACE_ENABLED=true,\
 CLOUD_TRACE_SCHEDULE_DELAY_MS=500,\
 TELEMETRY_SERVICE_NAME=contract-parser,\
-TELEMETRY_SERVICE_VERSION=0.9.0,\
-TELEMETRY_SAMPLE_RATE=1.0" \
+TELEMETRY_SERVICE_VERSION=0.12.3,\
+TELEMETRY_SAMPLE_RATE=1.0,\
+USE_LOCAL_BATCH_RUNNER=false" \
   --allow-unauthenticated
+```
+
+### 9.2 Build & Deploy Batch Job (`contract-parser-batch`)
+
+```bash
+# 1. Build and push dedicated batch container image
+gcloud builds submit --project="${PROJECT_ID}" --config=- . <<'EOF'
+steps:
+- name: 'gcr.io/cloud-builders/docker'
+  args: ['build', '-t', 'gcr.io/$PROJECT_ID/contract-parser-batch:v0.12.3', '-f', 'Dockerfile.batch', '.']
+images:
+- 'gcr.io/$PROJECT_ID/contract-parser-batch:v0.12.3'
+EOF
+
+# 2. Create or update Cloud Run Job
+gcloud run jobs create contract-parser-batch \
+  --image "gcr.io/${PROJECT_ID}/contract-parser-batch:v0.12.3" \
+  --region us-central1 \
+  --project "${PROJECT_ID}" \
+  --service-account "${SA_EMAIL}" \
+  --cpu 2 \
+  --memory 4Gi \
+  --max-retries 1 \
+  --task-timeout 7200 \
+  --set-env-vars "\
+GOOGLE_CLOUD_PROJECT=${PROJECT_ID},\
+GOOGLE_CLOUD_LOCATION=global,\
+USE_BIGQUERY=true,\
+BQ_DATASET_ID=contract_intelligence,\
+GCS_BUCKET_NAME=${PROJECT_ID}-contract-intelligence,\
+AUTH_ENABLED=true,\
+FIREBASE_API_KEY=${FIREBASE_API_KEY},\
+FIREBASE_AUTH_DOMAIN=${FIREBASE_AUTH_DOMAIN},\
+ADMIN_EMAIL_WHITELIST=aprasanna@google.com" \
+  || gcloud run jobs update contract-parser-batch \
+  --image "gcr.io/${PROJECT_ID}/contract-parser-batch:v0.12.3" \
+  --region us-central1 \
+  --project "${PROJECT_ID}"
 ```
 
 ---

@@ -11,6 +11,12 @@
 --   6. exhibits_catalog
 --   7. special_conditions
 --   8. dnd_signoffs
+--   9. template_registry
+--  10. template_clauses
+--  11. contract_variances
+--  12. clause_variance_details
+--  13. batch_jobs
+--  14. batch_job_items
 -- ==============================================================================
 
 -- 1. Projects Table (Portfolio Root)
@@ -309,7 +315,9 @@ CREATE TABLE IF NOT EXISTS `contract_intelligence.batch_job_items` (
     error_message STRING,
     started_at TIMESTAMP,
     completed_at TIMESTAMP,
-    updated_at TIMESTAMP NOT NULL
+    updated_at TIMESTAMP NOT NULL,
+    prompt_tokens INT64,
+    completion_tokens INT64
 )
 PARTITION BY DATE(updated_at)
 CLUSTER BY job_id, status, document_id;

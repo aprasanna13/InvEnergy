@@ -360,6 +360,17 @@
   * Updated Batch Ingestion Studio in `contract_parser/static/index.html` to display `Tokens (In/Out)` column in both the Batch Job Queue & History table and Job Items Feed, with an aggregate tokens badge (`⚡ X tokens (Y in / Z out)`) in the job header.
   * Backfilled historical token usage metrics in BigQuery for completed batch jobs and items.
 
+## [0.12.4] - 2026-10-15
+- Comprehensive EGM Drift Audit & Conflict Resolution (`Design/EGM_DRIFT_REPORT.md`):
+  * Audited all 15 architectural blueprints, feature change requests, and design specifications in `Design/` against `v0.12.3` codebase.
+  * Resolved BigQuery Table 14 schema drift in `scripts/sql/01_create_tables.sql`: added `prompt_tokens INT64` and `completion_tokens INT64` to `batch_job_items` DDL and updated file header to reflect all 14 tables.
+  * Aligned view documentation in `scripts/sql/02_create_views.sql` for 15 deduplication views.
+  * Added `roles/run.developer` IAM role in `scripts/setup_gcp_environment.sh` for Cloud Run Job API triggering and added canonical Cloud Storage folder provisioning (`batch_inbox/`, `raw/`, `archive/`, `exports/`).
+  * Updated `.env.example` with 14 tables, 15 views, `USE_LOCAL_BATCH_RUNNER=true`, and `TELEMETRY_SERVICE_VERSION=0.12.3`.
+  * Updated `README.md` to `v0.12.3` with full 14-table Mermaid architecture, module layout, Section 8.6 (CR-11 Legal Redline Studio), Section 8.7 (CR-12 Batch Ingestion Studio), and Cloud Run Job commands.
+  * Certified 100% plan parity (24 positive fortifications, 0 negative regressions, 7 resolved conflicts) with 85/85 tests passing.
+
+
 
 
 
