@@ -8,7 +8,7 @@ An enterprise-grade, Gemini-first hierarchical contract parsing, extraction, and
 
 ```mermaid
 graph TD
-    User([Field Foreman / Land Analyst]) -->|Browser / HTTPS| CR[Google Cloud Run<br/>FastAPI Web App v0.12.3]
+    User([Field Foreman / Land Analyst]) -->|Browser / HTTPS| CR[Google Cloud Run<br/>FastAPI Web App v0.12.5]
     
     subgraph Security["Zero-Trust Security & Identity"]
         IDP[Google Cloud Identity Platform / Firebase Auth]
@@ -75,6 +75,10 @@ graph TD
 │       └── thread_propagation.py # TracedThreadPoolExecutor Context Propagation
 ├── scripts/
 │   ├── setup_gcp_environment.sh # Automated GCP Infrastructure Provisioning Script
+│   ├── deploy_cloud_run.sh      # Cloud Run Web Service & Cloud Run Job Deployment Script
+│   ├── setup_local_dev.sh       # Local Developer Environment Bootstrapping Script
+│   ├── cleanup_environment.sh   # Lakehouse & Cloud Storage Cleanup Utility
+│   ├── README.md                # Automation Scripts Documentation Guide
 │   └── sql/
 │       ├── 01_create_tables.sql      # BigQuery 14-Table DDL with Partitioning & Clustering
 │       ├── 02_create_views.sql       # Analytical Deduplication Views (15 Views)
@@ -126,16 +130,17 @@ chmod +x ./scripts/setup_gcp_environment.sh
 1. **Enables 9 GCP APIs:** Cloud Run, Cloud Build, Artifact Registry, Vertex AI (`aiplatform`), BigQuery, Cloud Storage, Identity Toolkit, Cloud Trace, and Cloud Logging.
 2. **Provisions Storage Bucket:** Creates `gs://${PROJECT_ID}-contract-intelligence` with Uniform Bucket-Level Access.
 3. **Provisions BigQuery Lakehouse:** Creates dataset `contract_intelligence` in the specified region and runs:
-   - `scripts/sql/01_create_tables.sql`: Creates 8 tables with clustering and partitioning.
-   - `scripts/sql/02_create_views.sql`: Creates 9 analytical views with `QUALIFY ROW_NUMBER() = 1` active-state deduplication.
+   - `scripts/sql/01_create_tables.sql`: Creates 14 tables with clustering and partitioning.
+   - `scripts/sql/02_create_views.sql`: Creates 15 analytical views with `QUALIFY ROW_NUMBER() = 1` active-state deduplication.
    - `scripts/sql/03_seed_erp_projects.sql`: Populates baseline renewable energy development assets.
-4. **Provisions Runtime Service Account:** Creates `contract-parser-sa@${PROJECT_ID}.iam.gserviceaccount.com` and binds the 6 least-privilege roles:
+4. **Provisions Runtime Service Account:** Creates `contract-parser-sa@${PROJECT_ID}.iam.gserviceaccount.com` and binds the 7 least-privilege roles:
    - `roles/bigquery.dataEditor`
    - `roles/bigquery.jobUser`
    - `roles/storage.objectAdmin`
    - `roles/aiplatform.user`
    - `roles/cloudtrace.agent`
    - `roles/logging.logWriter`
+   - `roles/run.developer` (invokes Cloud Run Jobs for asynchronous batch processing)
 
 ---
 
@@ -197,6 +202,7 @@ ROLES=(
     "roles/aiplatform.user"
     "roles/cloudtrace.agent"
     "roles/logging.logWriter"
+    "roles/run.developer"
 )
 
 for role in "${ROLES[@]}"; do
@@ -257,7 +263,16 @@ The application provides zero-trust passwordless Email Link authentication:
 
 ## 8. Local Execution & Testing
 
-### 8.1 Quick Terminal Run (Self-Hosted / Local Machine)
+### 8.1 Automated Local Environment Bootstrapping
+
+Run the local setup script to prepare the virtual environment, install dependencies from public PyPI, create data directories, and execute unit tests in a single command:
+
+```bash
+chmod +x ./scripts/setup_local_dev.sh
+./scripts/setup_local_dev.sh
+```
+
+### 8.2 Quick Terminal Run (Self-Hosted / Local Machine)
 
 To run the application locally from your terminal:
 
@@ -299,17 +314,15 @@ Alternatively, launch the server in a single command without manually activating
 
 ---
 
-### 8.2 Customer Evaluation Mode (Zero Cloud Dependencies - CR-10)
+### 8.3 Customer Evaluation Mode (Zero Cloud Dependencies - CR-10)
 
 For customer engineering teams evaluating the platform locally or in containerized environments without setting up Google Cloud, BigQuery, or Firebase:
 
 ```bash
-# 1. Clone repository and install dependencies
+# 1. Clone repository and bootstrap local environment
 git clone <repo-url>
 cd Invenergy
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -e ".[dev]"
+./scripts/setup_local_dev.sh
 
 # 2. Configure .env for evaluation mode (or pass variables via shell)
 cp .env.example .env
@@ -323,11 +336,11 @@ LOCAL_DATA_DIR=./data
 # 3. Launch application
 uvicorn contract_parser.app:app --host 127.0.0.1 --port 8000 --reload
 ```
-Open [http://127.0.0.1:8000](http://127.0.0.1:8000). The workspace opens directly to the dashboard with full administrative permissions (`dev@invenergy.com`). All uploaded contracts, AST nodes, and regional templates persist locally in SQLite (`./data/contract_parser.db`).
+Open [http://127.0.0.1:8000](http://127.0.0.1:8000). The workspace opens directly to the dashboard with full administrative permissions (`dev@invenergy.com`). All uploaded contracts, AST nodes, and regional templates persist locally in SQLite (`./data/contract_intelligence.db`).
 
 ---
 
-### 8.3 Docker Evaluation Mode
+### 8.4 Docker Evaluation Mode
 
 Run the container directly with authentication and cloud lakehouse dependencies disabled:
 
@@ -342,7 +355,7 @@ docker run -p 8080:8080 \
 
 ---
 
-### 8.4 Standard Production / Development Mode
+### 8.5 Standard Production / Development Mode
 
 To run with full cloud integration and Firebase Zero-Trust authentication:
 
@@ -354,7 +367,7 @@ pytest tests/
 uvicorn contract_parser.app:app --host 127.0.0.1 --port 8000 --reload
 ```
 
-### 8.5 Regional Template Studio & Canonical AST Registry (CR-9)
+### 8.6 Regional Template Studio & Canonical AST Registry (CR-9)
 
 The platform provides a dedicated Workbench UI and REST API for managing regional master contract templates, performing bounded two-pass AST structural extraction, quarantining signature pages, and tokenizing bracket variables (`$[_____]`, `[County]`, `[Effective Date]`):
 
@@ -378,7 +391,7 @@ The platform provides a dedicated Workbench UI and REST API for managing regiona
   | `POST` | `/api/v1/templates/seed` | Seed canonical sample templates from `samples/Templates` |
   | `GET` | `/template-studio` | Serve dedicated Template Studio HTML workbench |
 
-### 8.6 Contract Variance Engine & Legal Redlines (CR-11)
+### 8.7 Contract Variance Engine & Legal Redlines (CR-11)
 
 The platform includes an automated two-stage AST alignment and legal redline engine comparing executed land leases against regional master templates:
 * **Hybrid Alignment:** Stage 1 exact canonical path matching (`BODY.1.1` == `BODY.1.1`); Stage 2 token similarity fallback with Jaccard index $\ge 0.70$.
@@ -387,7 +400,7 @@ The platform includes an automated two-stage AST alignment and legal redline eng
 * **Multi-Tier Risk Scoring:** Computes legal risk (`NONE`, `LOW`, `MEDIUM`, `HIGH`) with category tags and contextual legal rationales.
 * **REST Endpoints:** `POST /api/v1/contracts/{id}/compare`, `GET /api/v1/contracts/{id}/variance`, `GET /api/v1/contracts/{id}/variance/templates`.
 
-### 8.7 Historical Batch Ingestion & Batch Ingestion Studio (CR-12)
+### 8.8 Historical Batch Ingestion & Batch Ingestion Studio (CR-12)
 
 For onboarding legacy contract archives from flat storage prefixes (e.g. `gs://<bucket>/batch_inbox/`):
 * **Option 4a GCS Metadata Pre-Filtering:** Sub-second inbox scanning checking `blob.metadata['ingestion_status'] == 'COMPLETED'` without byte downloads.
@@ -396,6 +409,7 @@ For onboarding legacy contract archives from flat storage prefixes (e.g. `gs://<
 * **Clean-Slate Recovery:** Incomplete or interrupted contracts are purged (`purge_partial_document()`) and re-extracted from scratch on retries.
 * **Canonical Storage Archiving & Post-Ingestion Move:** Processed contracts are copied to `raw/<document_id>/<filename>` and moved from inbox to `archive/<filename>`.
 * **Prompt & Completion Token Tracking (v0.12.3):** Accumulates Gemini `usage_metadata` across concurrent passes, tracking prompt and completion tokens per contract and for the job.
+* **Dual-Path Job Invocation (v0.12.5):** Dispatches runs to Cloud Run Job `contract-parser-batch` via the Google Cloud Run v2 Client SDK with automatic secondary fallback to the Cloud Run v2 REST API via `httpx`.
 * **Batch REST Endpoints (Admin Only):**
   | Method | Endpoint | Description |
   | :--- | :--- | :--- |
@@ -409,7 +423,55 @@ For onboarding legacy contract archives from flat storage prefixes (e.g. `gs://<
 
 ## 9. Google Cloud Run Deployment
 
-### 9.1 Deploy Web Service (`contract-parser`)
+### 9.1 Automated One-Command Deployment
+
+Execute the automated deployment script to build the batch container image, configure `contract-parser-batch`, and deploy the web service revision:
+
+```bash
+export PROJECT_ID="your-target-project-id"
+export REGION="us-central1"
+
+chmod +x ./scripts/deploy_cloud_run.sh
+./scripts/deploy_cloud_run.sh
+```
+
+---
+
+### 9.2 Manual Deployment (Optional)
+
+#### Step 9.2.1: Build & Deploy Batch Job (`contract-parser-batch`)
+
+```bash
+# 1. Build and push dedicated batch container image
+gcloud builds submit --project="${PROJECT_ID}" --tag="gcr.io/${PROJECT_ID}/contract-parser-batch:v0.12.5" -f Dockerfile.batch .
+
+# 2. Create or update Cloud Run Job
+gcloud run jobs create contract-parser-batch \
+  --image "gcr.io/${PROJECT_ID}/contract-parser-batch:v0.12.5" \
+  --region us-central1 \
+  --project "${PROJECT_ID}" \
+  --service-account "${SA_EMAIL}" \
+  --cpu 2 \
+  --memory 4Gi \
+  --max-retries 0 \
+  --task-timeout 3600 \
+  --set-env-vars "\
+GOOGLE_CLOUD_PROJECT=${PROJECT_ID},\
+GOOGLE_CLOUD_LOCATION=global,\
+USE_BIGQUERY=true,\
+BQ_DATASET_ID=contract_intelligence,\
+GCS_BUCKET_NAME=${PROJECT_ID}-contract-intelligence,\
+AUTH_ENABLED=true,\
+FIREBASE_API_KEY=${FIREBASE_API_KEY},\
+FIREBASE_AUTH_DOMAIN=${FIREBASE_AUTH_DOMAIN},\
+ADMIN_EMAIL_WHITELIST=aprasanna@google.com" \
+  || gcloud run jobs update contract-parser-batch \
+  --image "gcr.io/${PROJECT_ID}/contract-parser-batch:v0.12.5" \
+  --region us-central1 \
+  --project "${PROJECT_ID}"
+```
+
+#### Step 9.2.2: Deploy Web Service (`contract-parser`)
 
 ```bash
 gcloud run deploy contract-parser \
@@ -424,8 +486,10 @@ gcloud run deploy contract-parser \
 GOOGLE_CLOUD_PROJECT=${PROJECT_ID},\
 GOOGLE_CLOUD_LOCATION=global,\
 GOOGLE_GENAI_USE_ENTERPRISE=true,\
-GCS_BUCKET_NAME=${PROJECT_ID}-contract-intelligence,\
+REGION=us-central1,\
+USE_BIGQUERY=true,\
 BQ_DATASET_ID=contract_intelligence,\
+GCS_BUCKET_NAME=${PROJECT_ID}-contract-intelligence,\
 BQ_DATA_AGENT_URN=${BQ_DATA_AGENT_URN},\
 LOCAL_DATA_DIR=/tmp/data,\
 GEMINI_MODEL=gemini-3.1-pro-preview,\
@@ -443,48 +507,10 @@ LOG_LEVEL=INFO,\
 CLOUD_TRACE_ENABLED=true,\
 CLOUD_TRACE_SCHEDULE_DELAY_MS=500,\
 TELEMETRY_SERVICE_NAME=contract-parser,\
-TELEMETRY_SERVICE_VERSION=0.12.3,\
+TELEMETRY_SERVICE_VERSION=0.12.5,\
 TELEMETRY_SAMPLE_RATE=1.0,\
 USE_LOCAL_BATCH_RUNNER=false" \
   --allow-unauthenticated
-```
-
-### 9.2 Build & Deploy Batch Job (`contract-parser-batch`)
-
-```bash
-# 1. Build and push dedicated batch container image
-gcloud builds submit --project="${PROJECT_ID}" --config=- . <<'EOF'
-steps:
-- name: 'gcr.io/cloud-builders/docker'
-  args: ['build', '-t', 'gcr.io/$PROJECT_ID/contract-parser-batch:v0.12.3', '-f', 'Dockerfile.batch', '.']
-images:
-- 'gcr.io/$PROJECT_ID/contract-parser-batch:v0.12.3'
-EOF
-
-# 2. Create or update Cloud Run Job
-gcloud run jobs create contract-parser-batch \
-  --image "gcr.io/${PROJECT_ID}/contract-parser-batch:v0.12.3" \
-  --region us-central1 \
-  --project "${PROJECT_ID}" \
-  --service-account "${SA_EMAIL}" \
-  --cpu 2 \
-  --memory 4Gi \
-  --max-retries 1 \
-  --task-timeout 7200 \
-  --set-env-vars "\
-GOOGLE_CLOUD_PROJECT=${PROJECT_ID},\
-GOOGLE_CLOUD_LOCATION=global,\
-USE_BIGQUERY=true,\
-BQ_DATASET_ID=contract_intelligence,\
-GCS_BUCKET_NAME=${PROJECT_ID}-contract-intelligence,\
-AUTH_ENABLED=true,\
-FIREBASE_API_KEY=${FIREBASE_API_KEY},\
-FIREBASE_AUTH_DOMAIN=${FIREBASE_AUTH_DOMAIN},\
-ADMIN_EMAIL_WHITELIST=aprasanna@google.com" \
-  || gcloud run jobs update contract-parser-batch \
-  --image "gcr.io/${PROJECT_ID}/contract-parser-batch:v0.12.3" \
-  --region us-central1 \
-  --project "${PROJECT_ID}"
 ```
 
 ---
@@ -503,7 +529,10 @@ ADMIN_EMAIL_WHITELIST=aprasanna@google.com" \
    # Expected response: JSON containing auth_enabled, firebase_api_key, and allowed_domains
    ```
 
-3. **Verify Cloud Trace and Structured Logging:**
+3. **Verify Cloud Run Job Dispatch:**
+   In [Google Cloud Console > Cloud Run > Jobs](https://console.cloud.google.com/run/jobs), confirm that clicking **Launch Extraction** in the Batch Ingestion Studio triggers an execution under `contract-parser-batch` in region `us-central1`.
+
+4. **Verify Cloud Trace and Structured Logging:**
    In [Google Cloud Console > Logs Explorer](https://console.cloud.google.com/logs), search:
    ```
    resource.type="cloud_run_revision"
@@ -517,10 +546,13 @@ ADMIN_EMAIL_WHITELIST=aprasanna@google.com" \
 
 | Issue | Cause | Resolution |
 | :--- | :--- | :--- |
-| **403 Forbidden / PermissionDenied** | Service Account lacks IAM roles. | Ensure `roles/bigquery.dataEditor`, `roles/storage.objectAdmin`, and `roles/aiplatform.user` are assigned to the runtime service account. |
+| **403 Forbidden / PermissionDenied** | Service Account lacks IAM roles. | Ensure `roles/bigquery.dataEditor`, `roles/storage.objectAdmin`, `roles/aiplatform.user`, and `roles/run.developer` are assigned to the runtime service account. |
+| **Cloud Run Job Executions Not Appearing** | Web container lacks Cloud Run client or SA lacks developer role. | Ensure `google-cloud-run>=0.10.0` is present in container (`v0.12.5`), `USE_LOCAL_BATCH_RUNNER=false` is set, and `roles/run.developer` is bound. The service also includes automatic REST API fallback. |
+| **Repeat Ingestion / Reset Lakehouse State** | Need clean slate for batch testing. | Run `./scripts/cleanup_environment.sh` to truncate BigQuery tables, restore baseline ERP projects, and clear processed folders while preserving `batch_inbox/`. |
 | **429 ResourceExhausted on Gemini** | Vertex AI per-minute quota reached. | The system automatically attempts exponential backoff and triggers the `GEMINI_FALLBACK_MODEL` (`gemini-3.8-flash`). Request a Vertex AI quota increase in the GCP Quotas console. |
 | **Auth Domain Not Authorized** | Cloud Run domain missing from Firebase Auth settings. | Add the Cloud Run domain (e.g. `*.run.app` or custom domain) to Firebase Console > Authentication > Settings > Authorized Domains. |
 | **PDF Extraction Timeout** | Very large PDF document (>150 pages). | Increase `PASS_TIMEOUT_SECONDS` (default: 480s) and ensure Cloud Run `--timeout` is set to 600 seconds or higher. |
 | **Ask-Agent 404 / Unavailable** | BigQuery Data Agent URN invalid or not yet published. | Verify `BQ_DATA_AGENT_URN` matches the published agent resource in BigQuery Studio > Data Agents. |
+
 
 

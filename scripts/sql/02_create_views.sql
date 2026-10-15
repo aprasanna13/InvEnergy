@@ -74,7 +74,7 @@ QUALIFY ROW_NUMBER() OVER (
 -- 8. Active Subcontractor DND Signoffs View
 CREATE OR REPLACE VIEW `contract_intelligence.v_active_dnd_signoffs` AS
 SELECT *
-FROM `contract_intelligence.dnd_signoffs`
+FROM `contract_intelligence.dnd_checklist_signoffs`
 QUALIFY ROW_NUMBER() OVER (
     PARTITION BY document_id, signoff_id 
     ORDER BY signed_at DESC

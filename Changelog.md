@@ -376,3 +376,13 @@
   * Enhanced `contract_parser/app.py` batch job launch controller with dual-path invocation: primary Google Cloud Run v2 Client SDK with seamless fallback to direct Google Cloud Run v2 REST API via `httpx` and `google.auth` bearer token injection.
   * Added detailed structured logging across SDK and REST invocation stages to ensure complete auditability and eliminate silent fallbacks to in-process execution.
 
+## [0.12.6] - 2026-10-15
+- Enhanced Automation Scripts & Comprehensive Setup Documentation:
+  * Aligned Table 8 DDL across `scripts/sql/01_create_tables.sql` and `scripts/sql/02_create_views.sql` to canonical `dnd_checklist_signoffs`.
+  * Created `scripts/deploy_cloud_run.sh` providing automated one-command container compilation, Cloud Run Job configuration, and Cloud Run web service deployment.
+  * Created `scripts/setup_local_dev.sh` providing automated Python virtual environment bootstrapping, public PyPI dependency installation with corporate mirror bypass, and test suite validation.
+  * Created `scripts/cleanup_environment.sh` providing an operational utility to reset the 14-table BigQuery Lakehouse, restore baseline ERP projects, and clean Cloud Storage staging while preserving `batch_inbox/`.
+  * Created `scripts/README.md` providing reference documentation for all automation scripts and SQL DDL files.
+  * Updated root `README.md` with complete setup instructions, dual-path Cloud Run Job dispatch documentation, operational runbook entries, and references to all automation scripts.
+
+

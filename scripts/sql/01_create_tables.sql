@@ -10,7 +10,7 @@
 --   5. defined_terms
 --   6. exhibits_catalog
 --   7. special_conditions
---   8. dnd_signoffs
+--   8. dnd_checklist_signoffs
 --   9. template_registry
 --  10. template_clauses
 --  11. contract_variances
@@ -165,7 +165,7 @@ CREATE TABLE IF NOT EXISTS `contract_intelligence.special_conditions` (
 CLUSTER BY document_id, condition_id;
 
 -- 8. Subcontractor Do-Not-Disturb (DND) Signoffs
-CREATE TABLE IF NOT EXISTS `contract_intelligence.dnd_signoffs` (
+CREATE TABLE IF NOT EXISTS `contract_intelligence.dnd_checklist_signoffs` (
     signoff_id STRING NOT NULL,
     document_id STRING NOT NULL,
     project_id STRING NOT NULL,
